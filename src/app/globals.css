@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+:root {
+  --background: #02033f;
+  --foreground: #f4f4ff;
+  --panel-from: #1a2bb8;
+  --panel-to: #060a63;
+  --panel-border: #d8d8f0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-panel-from: var(--panel-from);
+  --color-panel-to: var(--panel-to);
+  --color-panel-border: var(--panel-border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+}

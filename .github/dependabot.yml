@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for routine minor/patch bumps keeps review load small.
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  # Keeps the GitHub Actions used by our workflows patched too.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

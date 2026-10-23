@@ -1,0 +1,2 @@
+# Normalise line endings to LF everywhere (Windows, macOS, Linux CI) so Prettier checks agree.
+* text=auto eol=lf
