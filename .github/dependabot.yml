@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # @types/node must match the Node version we run (24, see "engines" in package.json).
+      # A newer major would describe APIs that don't exist at runtime. Bump it by hand, together
+      # with the Node version in package.json, the CI workflows and the PRD.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # One PR for routine minor/patch bumps keeps review load small.
       minor-and-patch:
