@@ -24,7 +24,7 @@ jobs:
       contents: read
       security-events: write # needed to upload findings to the Security tab
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v3
         with:
           languages: javascript-typescript
@@ -36,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # scan full history: a secret deleted in a later commit is still leaked
       - uses: gitleaks/gitleaks-action@v2
