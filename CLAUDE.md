@@ -50,3 +50,4 @@ Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes 
 - Pure game logic (XP, levels, stats) lives in `src/lib/game/` as framework-free functions so it is trivially testable.
 - UI must stay keyboard-accessible and pass axe (WCAG 2.1 AA) even in the retro theme; respect `prefers-reduced-motion`.
 - Original names and art only: no Final Fantasy trademarks, sprites, music or character names.
+- `@emnapi/core` and `@emnapi/runtime` are pinned devDependencies on purpose: npm on Windows nests them inside optional WebAssembly packages, but Linux CI's `npm ci` expects them at the top level of `package-lock.json`. Do not remove them as unused; regenerate the lock file with care.
