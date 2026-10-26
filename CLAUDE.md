@@ -40,7 +40,7 @@ Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes 
 4. **Least privilege**: read-only Gmail/Calendar/Graph scopes. No send or modify scopes.
 5. Database access via the ORM / parameterised queries only. Every table row is scoped by `user_id`.
 6. No `dangerouslySetInnerHTML`, `eval`, or string-built SQL/HTML.
-7. Do not weaken security headers in `next.config.ts` or disable a security check to make a test pass.
+7. Do not weaken security headers in `next.config.ts` or disable a security check to make a test pass. **Secret scanner false positives** (Gitleaks): make fake keys in tests and config obviously fake and low-entropy (for example `sb_publishable_test_test_test`, measured below the 3.5 threshold) instead of silencing the scanner. A `.gitleaksignore` entry is only for a finding already sitting in a pull request's history, must be a single exact fingerprint with a comment, and must never cover a real secret.
 8. Update `docs/THREAT-MODEL.md` when a change alters an asset, trust boundary, or control.
 9. **Supabase**: app code uses only the publishable key plus the user's session, so row-level security always applies. The secret/service-role key (`sb_secret_...`) must never appear in the browser, in git, in `NEXT_PUBLIC_*` variables, or in chat.
 10. **Every table** is created in a migration under `supabase/migrations/` with: `user_id` owner column, RLS enabled, privileges revoked from `anon`, and explicit per-operation policies using `(select auth.uid())`. Each new table needs tests in `supabase/tests/` proving another user cannot read or write its rows. The test "RLS is on for every public table" must keep passing.

@@ -25,7 +25,9 @@ export default defineConfig({
     env: {
       NEXT_PUBLIC_APP_URL: `http://localhost:${PORT}`,
       NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co",
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_e2e_placeholder",
+      // Obviously fake and deliberately low-entropy: a random-looking placeholder trips the secret
+      // scanner's generic-api-key rule.
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_test_test",
     },
     url: `http://localhost:${PORT}/login`,
     reuseExistingServer: !process.env.CI,
