@@ -1,0 +1,8 @@
+# Reviewed false positives for Gitleaks. Each line is the exact fingerprint of ONE finding
+# (commit:file:rule:line). Never add a real secret here: rotate it instead.
+
+# playwright.config.ts: a made-up placeholder Supabase publishable key used only by the browser
+# tests (they never reach a real project). It scored above the generic-api-key entropy threshold.
+# The placeholder was changed to a low-entropy value in the next commit; this entry only covers the
+# earlier commit that stays in the pull request's history.
+4fce0903146b46c2ec6142a48edcd289adee440d:playwright.config.ts:generic-api-key:28

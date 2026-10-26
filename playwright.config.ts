@@ -20,7 +20,16 @@ export default defineConfig({
   // Tests run against the real production build, the same thing users get.
   webServer: {
     command: `npm run build && npm run start -- --port ${PORT}`,
-    url: `http://localhost:${PORT}`,
+    // Placeholder settings keep these tests independent of any real account, of your .env.local,
+    // and of the network. They are not secrets. Process variables beat .env files in Next.js.
+    env: {
+      NEXT_PUBLIC_APP_URL: `http://localhost:${PORT}`,
+      NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co",
+      // Obviously fake and deliberately low-entropy: a random-looking placeholder trips the secret
+      // scanner's generic-api-key rule.
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_test_test_test",
+    },
+    url: `http://localhost:${PORT}/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,
   },

@@ -1,26 +1,9 @@
 import type { NextConfig } from "next";
 
-const isDev = process.env.NODE_ENV === "development";
-
-// Baseline Content Security Policy. It tells the browser which origins may load what, so an
-// injected <script> from elsewhere cannot run or phone home.
-// TODO(phase 1): replace 'unsafe-inline' with per-request nonces via proxy.ts (needs dynamic
-// rendering, which arrives with auth). Tracked in docs/THREAT-MODEL.md.
-const csp = [
-  "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
-  `connect-src 'self'${isDev ? " ws:" : ""}`,
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-].join("; ");
-
+// The Content-Security-Policy is NOT set here: it contains a fresh nonce per request, so it is
+// built in src/proxy.ts (see src/lib/security/csp.ts). These headers never change, so a static
+// list is fine.
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: csp },
   // Force HTTPS for two years (ignored by browsers over plain http, e.g. localhost).
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
   // Stop browsers guessing a file's type (blocks some content-sniffing attacks).
@@ -39,8 +22,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  cacheComponents: true,
-  partialPrefetching: true,
+  // `cacheComponents` (partial prerendering) and `partialPrefetching` were switched on by the
+  // starter template but are removed on purpose: the Next.js docs state that PPR is incompatible
+  // with nonce-based CSP, and a signed-in, single-user app gains nothing from static prerendering.
   turbopack: {
     rules: {
       "*.css": {

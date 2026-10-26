@@ -13,6 +13,8 @@ import { PGlite } from "@electric-sql/pglite";
 const SUPABASE_SHIM = `
   create role anon nologin;
   create role authenticated nologin;
+  -- The role Supabase's auth service uses when it calls auth hooks.
+  create role supabase_auth_admin nologin;
 
   create schema auth;
   create table auth.users (id uuid primary key default gen_random_uuid(), email text);
@@ -26,6 +28,7 @@ const SUPABASE_SHIM = `
   $$;
 
   grant usage on schema public, auth to anon, authenticated;
+  grant usage on schema public to supabase_auth_admin;
   grant execute on function auth.uid() to anon, authenticated;
 
   -- Supabase hands every new public table to its API roles by default. Reproducing that makes the
@@ -77,11 +80,19 @@ export async function asAnon<T>(
   return runAs(db, "anon", { role: "anon" }, fn);
 }
 
+/** Same, for Supabase's own auth service (role `supabase_auth_admin`), which calls auth hooks. */
+export async function asAuthService<T>(
+  db: PGlite,
+  fn: (query: PGlite["query"]) => Promise<T>,
+): Promise<T> {
+  return runAs(db, "supabase_auth_admin", {}, fn);
+}
+
 class Rollback extends Error {}
 
 async function runAs<T>(
   db: PGlite,
-  role: "anon" | "authenticated",
+  role: "anon" | "authenticated" | "supabase_auth_admin",
   claims: Record<string, string>,
   fn: (query: PGlite["query"]) => Promise<T>,
 ): Promise<T> {
