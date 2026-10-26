@@ -42,11 +42,16 @@ Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes 
 6. No `dangerouslySetInnerHTML`, `eval`, or string-built SQL/HTML.
 7. Do not weaken security headers in `next.config.ts` or disable a security check to make a test pass.
 8. Update `docs/THREAT-MODEL.md` when a change alters an asset, trust boundary, or control.
+9. **Supabase**: app code uses only the publishable key plus the user's session, so row-level security always applies. The secret/service-role key (`sb_secret_...`) must never appear in the browser, in git, in `NEXT_PUBLIC_*` variables, or in chat.
+10. **Every table** is created in a migration under `supabase/migrations/` with: `user_id` owner column, RLS enabled, privileges revoked from `anon`, and explicit per-operation policies using `(select auth.uid())`. Each new table needs tests in `supabase/tests/` proving another user cannot read or write its rows. The test "RLS is on for every public table" must keep passing.
+11. Never edit a migration that has been applied to a shared database. Add a new migration instead.
 
 ## Conventions
 
 - Path alias `@/` maps to `src/`.
-- Unit tests sit next to the code (`foo.ts` / `foo.test.ts`); browser tests live in `e2e/`.
+- Unit tests sit next to the code (`foo.ts` / `foo.test.ts`); browser tests live in `e2e/`; database security tests live in `supabase/tests/` and run against an in-process Postgres (PGlite) with Supabase's `auth` schema recreated, so they need no cloud account or secrets.
+- Supabase environment variables are read through `getSupabaseEnv()` in `src/lib/env.ts` (validated, only when first needed). Local values go in the git-ignored `.env.local`.
+- PowerShell 5.1 note: `Set-Content -Encoding utf8` adds a byte-order mark that breaks SQL files. Use `[IO.File]::WriteAllText` with `UTF8Encoding($false)` when writing SQL from scripts.
 - Pure game logic (XP, levels, stats) lives in `src/lib/game/` as framework-free functions so it is trivially testable.
 - UI must stay keyboard-accessible and pass axe (WCAG 2.1 AA) even in the retro theme; respect `prefers-reduced-motion`.
 - Original names and art only: no Final Fantasy trademarks, sprites, music or character names.
