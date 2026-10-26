@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { parseEnv } from "./env";
+import { parseEnv, parseSupabaseEnv } from "./env";
 
 describe("getEnv", () => {
   afterEach(() => {
@@ -61,5 +61,64 @@ describe("parseEnv", () => {
     } catch (error) {
       expect((error as Error).message).not.toContain("super-secret-token");
     }
+  });
+});
+
+describe("parseSupabaseEnv", () => {
+  const valid = {
+    NEXT_PUBLIC_SUPABASE_URL: "https://abcdefgh.supabase.co",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
+  };
+
+  it("accepts a project URL and a publishable key", () => {
+    expect(parseSupabaseEnv(valid)).toEqual(valid);
+  });
+
+  it("requires both variables", () => {
+    expect(() => parseSupabaseEnv({})).toThrow(/NEXT_PUBLIC_SUPABASE_URL/);
+    expect(() =>
+      parseSupabaseEnv({ NEXT_PUBLIC_SUPABASE_URL: valid.NEXT_PUBLIC_SUPABASE_URL }),
+    ).toThrow(/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  });
+
+  it("rejects a plain-http project URL", () => {
+    expect(() =>
+      parseSupabaseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: "http://abcdefgh.supabase.co" }),
+    ).toThrow(/NEXT_PUBLIC_SUPABASE_URL/);
+  });
+
+  it("rejects a secret key in the public key slot, without echoing it", () => {
+    const leaked = "sb_secret_do-not-print-this";
+    try {
+      parseSupabaseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: leaked });
+      expect.unreachable("a secret key must be rejected");
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toMatch(/NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+      expect(message).not.toContain("do-not-print-this");
+    }
+  });
+});
+
+describe("getSupabaseEnv", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("reads the Supabase variables from process.env", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://abcdefgh.supabase.co");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_example");
+    const { getSupabaseEnv } = await import("./env");
+    const first = getSupabaseEnv();
+    expect(first.NEXT_PUBLIC_SUPABASE_URL).toBe("https://abcdefgh.supabase.co");
+    expect(getSupabaseEnv()).toBe(first);
+  });
+
+  it("throws a clear error when Supabase is not configured", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "");
+    const { getSupabaseEnv } = await import("./env");
+    expect(() => getSupabaseEnv()).toThrow(/Invalid environment configuration/);
   });
 });

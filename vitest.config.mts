@@ -10,8 +10,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
-    // Only unit/component tests live in src/. Browser tests live in e2e/ and run via Playwright.
-    include: ["src/**/*.test.{ts,tsx}"],
+    // Unit/component tests live in src/; database security tests live in supabase/tests/.
+    // Browser tests live in e2e/ and run via Playwright.
+    include: ["src/**/*.test.{ts,tsx}", "supabase/**/*.test.ts"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.{ts,tsx}"],

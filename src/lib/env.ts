@@ -13,8 +13,26 @@ const envSchema = z.object({
 
 export type Env = z.infer<typeof envSchema>;
 
-export function parseEnv(source: Record<string, string | undefined>): Env {
-  const result = envSchema.safeParse(source);
+/**
+ * Supabase settings are validated separately, and only when something asks for them, so the
+ * rest of the app (and CI builds) work without Supabase configured.
+ */
+const supabaseEnvSchema = z.object({
+  NEXT_PUBLIC_SUPABASE_URL: z.url({ protocol: /^https$/ }),
+  // The publishable key is safe in the browser because row-level security protects the data.
+  // The secret key bypasses security entirely, so a `sb_secret_` value here is a mistake.
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z
+    .string()
+    .startsWith("sb_publishable_", "must be a Supabase publishable key (sb_publishable_...)"),
+});
+
+export type SupabaseEnv = z.infer<typeof supabaseEnvSchema>;
+
+function parseWith<T extends z.ZodType>(
+  schema: T,
+  source: Record<string, string | undefined>,
+): z.infer<T> {
+  const result = schema.safeParse(source);
   if (!result.success) {
     // Report variable names and reasons only, never the values (they may be secrets).
     const problems = result.error.issues
@@ -25,9 +43,29 @@ export function parseEnv(source: Record<string, string | undefined>): Env {
   return result.data;
 }
 
+export function parseEnv(source: Record<string, string | undefined>): Env {
+  return parseWith(envSchema, source);
+}
+
+export function parseSupabaseEnv(source: Record<string, string | undefined>): SupabaseEnv {
+  return parseWith(supabaseEnvSchema, source);
+}
+
 let cached: Env | undefined;
 
 export function getEnv(): Env {
   cached ??= parseEnv(process.env);
   return cached;
+}
+
+let cachedSupabase: SupabaseEnv | undefined;
+
+export function getSupabaseEnv(): SupabaseEnv {
+  // These two lookups must be written out literally: Next.js replaces `process.env.NEXT_PUBLIC_*`
+  // with the real value at build time, which is what makes them available in the browser.
+  cachedSupabase ??= parseSupabaseEnv({
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  });
+  return cachedSupabase;
 }
