@@ -37,7 +37,9 @@ export function TaskList({ tasks, mode, emptyMessage }: Props) {
             <input type="hidden" name="completed" value={mode === "open" ? "true" : "false"} />
             <button
               type="submit"
-              aria-label={`${mode === "open" ? "Complete" : "Reopen"} quest: ${task.title}`}
+              // The spoken name must START WITH the visible word (WCAG 2.5.3, "Label in Name"), so a
+              // voice-control user who says "click Undo" finds this button.
+              aria-label={`${mode === "open" ? "Complete" : "Undo"} quest: ${task.title}`}
               className="rounded border-2 border-panel-border bg-background px-3 py-1 font-bold hover:bg-panel-from focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-panel-border"
             >
               {mode === "open" ? "Complete" : "Undo"}

@@ -49,7 +49,7 @@ test.describe("the quest list", () => {
     await expect(done.getByRole("link", { name: "Pay rent" })).toBeVisible();
     await expect(open.getByRole("link", { name: "Pay rent" })).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Reopen quest: Pay rent" }).click();
+    await page.getByRole("button", { name: "Undo quest: Pay rent" }).click();
     await expect(open.getByRole("link", { name: "Pay rent" })).toBeVisible();
     await expect(done.getByRole("link", { name: "Pay rent" })).toHaveCount(0);
   });

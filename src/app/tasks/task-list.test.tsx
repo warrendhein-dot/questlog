@@ -49,11 +49,20 @@ describe("TaskList", () => {
 
   it("offers Undo for completed quests", () => {
     const { container } = render(<TaskList tasks={[task]} mode="done" emptyMessage="" />);
-    expect(screen.getByRole("button", { name: "Reopen quest: Pay rent" })).toHaveTextContent(
-      "Undo",
-    );
+    expect(screen.getByRole("button", { name: "Undo quest: Pay rent" })).toHaveTextContent("Undo");
     expect(container.querySelector('input[name="completed"]')).toHaveValue("false");
   });
+
+  it.each(["open", "done"] as const)(
+    "gives each %s-mode button a spoken name that contains its visible text (WCAG 2.5.3)",
+    (mode) => {
+      // Voice-control users say the visible word ("click Undo"), so the accessible name must contain it.
+      render(<TaskList tasks={[task]} mode={mode} emptyMessage="" />);
+      const button = screen.getByRole("button");
+      const visible = button.textContent!.trim().toLowerCase();
+      expect(button.getAttribute("aria-label")!.toLowerCase()).toContain(visible);
+    },
+  );
 
   it("shows markup in a title as plain text", () => {
     const { container } = render(
