@@ -5,7 +5,16 @@ import type { TaskFormState } from "@/lib/tasks/schema";
 import { TaskForm } from "./task-form";
 
 type Action = (previous: TaskFormState, formData: FormData) => Promise<TaskFormState>;
-const fakeAction = (result: TaskFormState) => vi.fn<Action>(async () => result);
+/**
+ * A stand-in for a server action. `delayMs` makes it answer late, like a real network call: the
+ * form then really is "waiting" when the test looks at it, which is how the tests below catch
+ * assertions that run before the answer has arrived.
+ */
+const fakeAction = (result: TaskFormState, delayMs = 0) =>
+  vi.fn<Action>(async () => {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    return result;
+  });
 
 describe("TaskForm", () => {
   it("offers every field with a visible label and sensible defaults", () => {
@@ -75,32 +84,42 @@ describe("TaskForm", () => {
   });
 
   it("explains a rejected field and ties the message to it for screen readers", async () => {
-    const action = fakeAction({
-      status: "error",
-      errors: { title: "Give the quest a name." },
-      values: { title: "", notes: "Keep me", category: "home", priority: "low", dueDate: "" },
-    });
+    const action = fakeAction(
+      {
+        status: "error",
+        errors: { title: "Give the quest a name." },
+        values: { title: "", notes: "Keep me", category: "home", priority: "low", dueDate: "" },
+      },
+      50,
+    );
     render(<TaskForm action={action} submitLabel="Add quest" />);
     await userEvent.click(screen.getByRole("button", { name: "Add quest" }));
 
-    const title = await screen.findByLabelText("Quest name");
+    // Wait for the message itself: the field exists from the start, so waiting for the field proves
+    // nothing, and the form rebuilds its fields when the answer arrives (an earlier handle on the
+    // field would then point at a removed element). Look the field up only after the answer is in.
+    await screen.findByText("Give the quest a name.");
+    const title = screen.getByLabelText("Quest name");
     expect(title).toHaveAttribute("aria-invalid", "true");
     expect(title).toHaveAccessibleDescription("Give the quest a name.");
     expect(screen.getByLabelText("Category")).not.toHaveAttribute("aria-invalid");
   });
 
   it("keeps what the user typed after a rejected submission", async () => {
-    const action = fakeAction({
-      status: "error",
-      errors: { title: "Give the quest a name." },
-      values: {
-        title: "",
-        notes: "Keep me",
-        category: "home",
-        priority: "low",
-        dueDate: "2026-12-24",
+    const action = fakeAction(
+      {
+        status: "error",
+        errors: { title: "Give the quest a name." },
+        values: {
+          title: "",
+          notes: "Keep me",
+          category: "home",
+          priority: "low",
+          dueDate: "2026-12-24",
+        },
       },
-    });
+      50,
+    );
     render(<TaskForm action={action} submitLabel="Add quest" />);
     await userEvent.type(screen.getByLabelText("Notes (optional)"), "Keep me");
     await userEvent.click(screen.getByRole("button", { name: "Add quest" }));
