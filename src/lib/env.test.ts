@@ -87,6 +87,29 @@ describe("parseSupabaseEnv", () => {
     ).toThrow(/NEXT_PUBLIC_SUPABASE_URL/);
   });
 
+  it.each(["http://127.0.0.1:54321", "http://localhost:54321"])(
+    "allows plain http for this computer only (%s), for the throwaway test stack",
+    (url) => {
+      expect(parseSupabaseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: url })).toMatchObject({
+        NEXT_PUBLIC_SUPABASE_URL: url,
+      });
+    },
+  );
+
+  it.each([
+    "http://localhost.evil.example",
+    "http://127.0.0.1.evil.example",
+    "http://evil.example/localhost",
+    "http://user@evil.example@localhost",
+    "https://user:password@abcdefgh.supabase.co",
+    "ftp://127.0.0.1",
+    "javascript:alert(1)",
+  ])("does not let %s pass as a local address", (url) => {
+    expect(() => parseSupabaseEnv({ ...valid, NEXT_PUBLIC_SUPABASE_URL: url })).toThrow(
+      /NEXT_PUBLIC_SUPABASE_URL/,
+    );
+  });
+
   it("rejects a secret key in the public key slot, without echoing it", () => {
     const leaked = "sb_secret_do-not-print-this";
     try {

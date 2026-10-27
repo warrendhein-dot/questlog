@@ -70,7 +70,7 @@ describe("Home page", () => {
     expect(screen.getByRole("link", { name: "Pay rent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Complete quest: Pay rent" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Book dentist" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reopen quest: Book dentist" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Undo quest: Book dentist" })).toBeInTheDocument();
   });
 
   it("guides a new user when there is nothing yet", async () => {

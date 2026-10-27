@@ -17,8 +17,31 @@ export type Env = z.infer<typeof envSchema>;
  * Supabase settings are validated separately, and only when something asks for them, so the
  * rest of the app (and CI builds) work without Supabase configured.
  */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
+
+/** https always; plain http only for this computer (the throwaway Supabase used by CI tests). */
+function isAllowedSupabaseUrl(value: string): boolean {
+  // A validation rule must never throw: unparseable input is simply "not allowed".
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  // A Supabase address never carries a username or password. Rejecting them also defeats tricks
+  // like http://anything@evil.example@localhost, where the part before the last @ is not the host.
+  if (url.username !== "" || url.password !== "") return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
+}
+
 const supabaseEnvSchema = z.object({
-  NEXT_PUBLIC_SUPABASE_URL: z.url({ protocol: /^https$/ }),
+  NEXT_PUBLIC_SUPABASE_URL: z
+    .url()
+    .refine(
+      isAllowedSupabaseUrl,
+      "must be an https URL (plain http is allowed only for localhost)",
+    ),
   // The publishable key is safe in the browser because row-level security protects the data.
   // The secret key bypasses security entirely, so a `sb_secret_` value here is a mistake.
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z

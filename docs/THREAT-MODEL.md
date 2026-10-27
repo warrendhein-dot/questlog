@@ -66,5 +66,7 @@ A threat model answers four questions: what are we protecting, who or what could
 - [ ] Add a pre-commit hook (lint-staged + secret scan) so mistakes are caught before they leave the machine. (A real incident motivates this: real settings were once typed into the tracked `.env.example`; Gitleaks caught it in CI, but a local hook would catch it earlier.)
 - [x] ~~Rate limiting for task creation.~~ Done in slice 3 (database trigger).
 - [ ] Rate limiting for the sign-in callback. It needs a store shared between server instances, so do it with the production deploy (slice 8).
-- [ ] Real end-to-end tests for signed-in flows. Browser tests currently cover only signed-out behaviour; signed-in behaviour is covered by unit and database tests. A CI-only local Supabase stack would allow real sign-in in tests without a backdoor.
+- [x] ~~Real end-to-end tests for signed-in flows.~~ Done: `e2e-signed-in/` runs in CI against a throwaway Supabase built from our migrations, with no test-only door in the app. It checks, through a real browser and a real login service: one user cannot see or change another's quests (pages, edit URL and direct API calls); a session cookie with a damaged signature is refused; a session cookie copied before sign-out stops working afterwards (the immediate revocation relied on in A3); and the creation limit is per user.
+- [ ] Add the "Signed-in browser tests (local Supabase)" check to the required checks on `main` once it has been green for a few runs.
+- [ ] The sign-up hook is only tested at the database level. A future CI test could enable it in the throwaway stack and attempt a real sign-up.
 - [ ] Production: restrict the Supabase redirect URL list to the production origin only, and remove `localhost` entries.
