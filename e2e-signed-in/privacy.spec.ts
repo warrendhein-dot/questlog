@@ -59,6 +59,62 @@ test.describe("one user cannot reach another's quests", () => {
     await bobContext.close();
   });
 
+  test("nor reach, change, or add to her steps", async ({ page, user, browser, baseURL }) => {
+    // Alice creates a quest with one step, through her own session.
+    await page.goto("/");
+    await addQuest(page, "Alice's private quest");
+    const href = await page
+      .getByRole("link", { name: "Alice's private quest" })
+      .getAttribute("href");
+    const aliceTaskId = href!.split("/").pop()!;
+    const aliceApi = await clientFor(user);
+    const created = await aliceApi
+      .from("subtasks")
+      .insert({ task_id: aliceTaskId, title: "Alice's private step" })
+      .select("id");
+    expect(created.error).toBeNull();
+    const aliceStepId = created.data![0]!.id as string;
+
+    const bob = await createTestUser();
+    const bobApi = await clientFor(bob);
+
+    // Nothing to read, by listing or by id.
+    expect((await bobApi.from("subtasks").select("id")).data).toEqual([]);
+    expect((await bobApi.from("subtasks").select("id").eq("id", aliceStepId)).data).toEqual([]);
+
+    // Nothing to change or remove: the request succeeds but touches no rows.
+    const update = await bobApi
+      .from("subtasks")
+      .update({ title: "Hacked" })
+      .eq("id", aliceStepId)
+      .select();
+    expect(update.data).toEqual([]);
+    const removal = await bobApi.from("subtasks").delete().eq("id", aliceStepId).select();
+    expect(removal.data).toEqual([]);
+
+    // He cannot hang a step on her quest, nor pose as her.
+    const planted = await bobApi
+      .from("subtasks")
+      .insert({ task_id: aliceTaskId, title: "Planted" });
+    expect(planted.error).not.toBeNull();
+    const forged = await bobApi
+      .from("subtasks")
+      .insert({ task_id: aliceTaskId, title: "Forged", user_id: user.id });
+    expect(forged.error).not.toBeNull();
+
+    // He cannot reach her steps through the page either, and her list shows no sign of him.
+    const bobContext = await browser.newContext({ baseURL });
+    await signIn(bobContext, baseURL!, bob);
+    const bobPage = await bobContext.newPage();
+    const response = await bobPage.goto(`/tasks/${aliceTaskId}`);
+    expect(response?.status()).toBe(404);
+    await expect(bobPage.getByText("Alice's private step")).toHaveCount(0);
+    await bobContext.close();
+
+    const aliceRows = await aliceApi.from("subtasks").select("title");
+    expect(aliceRows.data).toEqual([{ title: "Alice's private step" }]);
+  });
+
   test("each user's quests are counted separately for the creation limit", async ({
     page,
     user,

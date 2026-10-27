@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Task } from "@/lib/tasks/schema";
+import type { TaskWithSteps } from "@/lib/tasks/queries";
 
 const { requireUser, listOpenTasks, listRecentCompletedTasks } = vi.hoisted(() => ({
   requireUser: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock("@/app/tasks/actions", () => ({
 
 import Home from "./page";
 
-const open: Task = {
+const open: TaskWithSteps = {
   id: "123e4567-e89b-42d3-a456-426614174000",
   title: "Pay rent",
   notes: "",
@@ -27,8 +27,10 @@ const open: Task = {
   priority: "high",
   dueDate: "2026-11-01",
   completedAt: null,
+  stepsDone: 0,
+  stepsTotal: 0,
 };
-const done: Task = {
+const done: TaskWithSteps = {
   ...open,
   id: "223e4567-e89b-42d3-a456-426614174000",
   title: "Book dentist",

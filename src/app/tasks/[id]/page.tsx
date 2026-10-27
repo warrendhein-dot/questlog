@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { updateTask } from "@/app/tasks/actions";
+import { StepsPanel } from "@/app/tasks/steps-panel";
 import { TaskForm } from "@/app/tasks/task-form";
 import { requireUser } from "@/lib/auth/session";
+import { listSubtasks } from "@/lib/subtasks/queries";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getTask } from "@/lib/tasks/queries";
 import { parseTaskId, toFormValues } from "@/lib/tasks/schema";
@@ -18,6 +20,7 @@ export default async function EditTaskPage({ params }: { params: Promise<{ id: s
   // Row-level security makes someone else's quest look exactly like one that does not exist.
   const task = await getTask(supabase, taskId);
   if (!task) notFound();
+  const steps = await listSubtasks(supabase, task.id);
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 p-6">
@@ -42,6 +45,8 @@ export default async function EditTaskPage({ params }: { params: Promise<{ id: s
           </Link>
         </p>
       </section>
+
+      <StepsPanel taskId={task.id} taskCompleted={task.completedAt !== null} steps={steps} />
     </main>
   );
 }

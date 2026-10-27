@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { setTaskCompleted } from "@/app/tasks/actions";
-import { CATEGORY_LABELS, PRIORITY_LABELS, type Task } from "@/lib/tasks/schema";
+import type { TaskWithSteps } from "@/lib/tasks/queries";
+import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/tasks/schema";
 
 type Props = {
-  tasks: Task[];
+  tasks: TaskWithSteps[];
   /** "open" shows a Complete button, "done" shows an Undo button. */
   mode: "open" | "done";
   emptyMessage: string;
@@ -31,6 +32,11 @@ export function TaskList({ tasks, mode, emptyMessage }: Props) {
               {CATEGORY_LABELS[task.category]} · {PRIORITY_LABELS[task.priority]} priority
               {task.dueDate ? ` · Due ${task.dueDate}` : ""}
             </p>
+            {task.stepsTotal > 0 && (
+              <p className="mt-1 text-sm">
+                Steps: {task.stepsDone} of {task.stepsTotal} done
+              </p>
+            )}
           </div>
           <form action={setTaskCompleted}>
             <input type="hidden" name="id" value={task.id} />

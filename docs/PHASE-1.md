@@ -4,17 +4,17 @@ Goal: a signed-in, secure, deployed task list covering PRD requirements **T1-T7*
 
 ## 1. Decisions
 
-| Topic           | Decision                                                                 | Consequence                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Sign-in         | Google sign-in only, via Supabase Auth                                   | No passwords stored by us. The same Google identity can later grant Gmail/Calendar access (Phase 4, with separate read-only consent). |
-| Who may sign in | Allow-list of one email address                                          | Anyone else who completes Google sign-in is rejected and has no data access.                                                          |
-| Data store      | Supabase (hosted Postgres) with row-level security                       | The database itself refuses to show you someone else's rows, even if our app code has a bug.                                          |
-| Categories      | Fixed five: Work, Health, Learning, Home, Social                         | Each maps to one RPG stat (Phase 2). Stored as a database enum, so invalid values are impossible.                                     |
-| Recurring tasks | The next occurrence is created when you complete the current one         | No pile-up of duplicates. Computed from the original schedule (see 4.3).                                                              |
-| Subtasks        | Parent completes automatically when all subtasks are done                | The parent cannot be completed directly while subtasks are open. One level of nesting only.                                           |
-| Today view      | Due today + overdue (overdue on top) + tasks pinned to Today             | Needs a `pinned_for` date on tasks.                                                                                                   |
-| Week            | Starts Monday. Time zone detected from the browser, editable in settings | Dates are stored as calendar dates in the user's time zone, and timestamps as UTC.                                                    |
-| Deleting        | Soft delete to a Trash, restorable, purged after 30 days                 | Tasks carry `deleted_at`. A scheduled job purges old rows. Also protects the future XP system from delete-and-recreate tricks.        |
+| Topic           | Decision                                                                  | Consequence                                                                                                                                                                                                            |
+| --------------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Sign-in         | Google sign-in only, via Supabase Auth                                    | No passwords stored by us. The same Google identity can later grant Gmail/Calendar access (Phase 4, with separate read-only consent).                                                                                  |
+| Who may sign in | Allow-list of one email address                                           | Anyone else who completes Google sign-in is rejected and has no data access.                                                                                                                                           |
+| Data store      | Supabase (hosted Postgres) with row-level security                        | The database itself refuses to show you someone else's rows, even if our app code has a bug.                                                                                                                           |
+| Categories      | Fixed five: Work, Health, Learning, Home, Social                          | Each maps to one RPG stat (Phase 2). Stored as a database enum, so invalid values are impossible.                                                                                                                      |
+| Recurring tasks | The next occurrence is created when you complete the current one          | No pile-up of duplicates. Computed from the original schedule (see 4.3).                                                                                                                                               |
+| Subtasks        | One level of steps; ticking the last one **offers** to complete the quest | Changed in slice 4 (the owner chose this over auto-complete): the quest is never completed by accident, and may still be completed directly. Steps live on the quest's edit page; the list shows "Steps: 2 of 5 done". |
+| Today view      | Due today + overdue (overdue on top) + tasks pinned to Today              | Needs a `pinned_for` date on tasks.                                                                                                                                                                                    |
+| Week            | Starts Monday. Time zone detected from the browser, editable in settings  | Dates are stored as calendar dates in the user's time zone, and timestamps as UTC.                                                                                                                                     |
+| Deleting        | Soft delete to a Trash, restorable, purged after 30 days                  | Tasks carry `deleted_at`. A scheduled job purges old rows. Also protects the future XP system from delete-and-recreate tricks.                                                                                         |
 
 ## 2. Data model (sketch)
 
@@ -22,7 +22,7 @@ All tables carry `user_id` (owner) and are protected by row-level security: `use
 
 `tasks`
 
-- `id` (uuid), `user_id`, `parent_id` (nullable, points to another task; subtasks only, max one level)
+- `id` (uuid), `user_id`
 - `title` (1-200 chars), `notes` (max 5000 chars)
 - `category` (enum of the five), `priority` (`low` | `normal` | `high`)
 - `due_date` (date, nullable), `pinned_for` (date, nullable)
@@ -30,6 +30,12 @@ All tables carry `user_id` (owner) and are protected by row-level security: `use
 - `recurrence` (jsonb, nullable; validated by a Zod schema: frequency, interval, weekdays)
 - `created_at`, `updated_at`
 - Reserved for later phases (nullable, unused now): `size`, `source`, `source_ref`
+
+`subtasks` (slice 4: a separate table rather than a `parent_id` on `tasks`, so "one level only" holds by construction and a step can never be mistaken for a quest in the lists)
+
+- `id` (uuid), `user_id`, `task_id` (the quest it belongs to; paired with `user_id` in a composite foreign key, so a step can only hang on the same user's quest)
+- `title` (1-200 chars), `completed_at` (timestamptz, nullable), `created_at`, `updated_at`
+- At most 50 steps per quest and 120 new steps per user per minute, enforced by a database trigger
 
 `profiles`
 
@@ -44,7 +50,7 @@ Each slice is one branch, one PR, with tests, and merges only with green CI.
 | 1   | Supabase foundation    | Supabase client setup, environment variables in `src/lib/env.ts`, migrations folder, `profiles` table, RLS test harness                                         |
 | 2   | Sign-in                | Google sign-in, session refresh in `proxy.ts`, single-email allow-list, protected routes, sign-out. **Also replaces `'unsafe-inline'` with a nonce-based CSP.** |
 | 3   | Tasks: create and list | `tasks` table with RLS, create, edit and complete (T1, T2, T3), Zod validation of every input, server actions                                                   |
-| 4   | Subtasks               | T4 with the auto-complete rule                                                                                                                                  |
+| 4   | Subtasks               | T4: one level of steps on the edit page, with an offer to complete the quest when all are ticked                                                                |
 | 5   | Today and This week    | T6 views, overdue handling, pinning                                                                                                                             |
 | 6   | Recurring              | T5: pure `nextOccurrence()` function with thorough unit tests, then wiring on completion                                                                        |
 | 7   | Trash                  | T7: soft delete, restore, scheduled purge after 30 days                                                                                                         |
@@ -60,9 +66,10 @@ Completing sets `completed_at`. A completed task leaves Today and appears under 
 
 ### 4.2 Subtasks
 
-- Maximum one level: a subtask cannot have subtasks (enforced by a database constraint).
-- Completing the final open subtask completes the parent. Completing a parent directly is blocked while subtasks are open.
-- Soft-deleting a parent soft-deletes its subtasks; restoring restores them.
+- Maximum one level: a step has no steps of its own (there is simply no way to nest, since steps live in their own table).
+- Ticking the last open step does **not** complete the quest. The edit page shows "All steps done. Complete the quest?" with a button; the quest completes only when it is pressed. A quest can also still be completed directly at any time.
+- Steps are added, ticked, un-ticked and removed on the edit page. Removing a step deletes it for good (steps are small; the Trash is for quests). Renaming a step is not built yet.
+- Soft-deleting a parent soft-deletes its subtasks; restoring restores them. (Slice 7.)
 
 ### 4.3 Recurring (default rule; confirm in review)
 

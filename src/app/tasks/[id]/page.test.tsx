@@ -2,9 +2,10 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "@/lib/tasks/schema";
 
-const { requireUser, getTask, notFound, updateTask } = vi.hoisted(() => ({
+const { requireUser, getTask, listSubtasks, notFound, updateTask } = vi.hoisted(() => ({
   requireUser: vi.fn(),
   getTask: vi.fn(),
+  listSubtasks: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error("NEXT_NOT_FOUND");
   }),
@@ -14,8 +15,14 @@ const { requireUser, getTask, notFound, updateTask } = vi.hoisted(() => ({
 vi.mock("@/lib/auth/session", () => ({ requireUser }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () => ({}) }));
 vi.mock("@/lib/tasks/queries", () => ({ getTask }));
+vi.mock("@/lib/subtasks/queries", () => ({ listSubtasks }));
 vi.mock("next/navigation", () => ({ notFound }));
-vi.mock("@/app/tasks/actions", () => ({ updateTask }));
+vi.mock("@/app/tasks/actions", () => ({ updateTask, setTaskCompleted: vi.fn() }));
+vi.mock("@/app/tasks/subtask-actions", () => ({
+  addSubtask: vi.fn(),
+  setSubtaskCompleted: vi.fn(),
+  removeSubtask: vi.fn(),
+}));
 
 import EditTaskPage from "./page";
 
@@ -37,6 +44,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   requireUser.mockResolvedValue({ id: "u1" });
   getTask.mockResolvedValue(task);
+  listSubtasks.mockResolvedValue([]);
   updateTask.mockImplementation(async () => ({ status: "idle" }));
 });
 
@@ -57,19 +65,32 @@ describe("Edit quest page", () => {
     expect(updateTask.mock.calls[0]![0]).toBe(ID);
   });
 
+  it("shows the quest's steps in their own section", async () => {
+    listSubtasks.mockResolvedValue([
+      { id: "223e4567-e89b-42d3-a456-426614174000", title: "Call the landlord", completedAt: null },
+    ]);
+    await renderPage(ID);
+    expect(listSubtasks).toHaveBeenCalledWith(expect.anything(), ID);
+    expect(screen.getByRole("heading", { level: 2, name: "Steps" })).toBeInTheDocument();
+    expect(screen.getByText("Call the landlord")).toBeInTheDocument();
+  });
+
   it("requires sign-in before looking anything up", async () => {
     requireUser.mockRejectedValue(new Error("NEXT_REDIRECT:/login"));
     await expect(renderPage(ID)).rejects.toThrow("NEXT_REDIRECT:/login");
     expect(getTask).not.toHaveBeenCalled();
+    expect(listSubtasks).not.toHaveBeenCalled();
   });
 
   it("shows not-found for an id that is not a UUID, without touching the database", async () => {
     await expect(renderPage("not-a-uuid")).rejects.toThrow("NEXT_NOT_FOUND");
     expect(getTask).not.toHaveBeenCalled();
+    expect(listSubtasks).not.toHaveBeenCalled();
   });
 
   it("shows not-found when the quest does not exist or belongs to someone else", async () => {
     getTask.mockResolvedValue(null);
     await expect(renderPage(ID)).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(listSubtasks).not.toHaveBeenCalled();
   });
 });
