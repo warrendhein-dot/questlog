@@ -48,6 +48,8 @@ Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes 
 12. **Auth**: Google sign-in only, via Supabase. `src/proxy.ts` issues the per-request nonce CSP, refreshes the session and redirects signed-out visitors, but **every protected page and server action must still call `requireUser()`** (`src/lib/auth/session.ts`), which uses `getUser()`. Never use `getSession()` to decide who someone is. Public paths live in `src/lib/auth/paths.ts`: keep that list minimal.
 13. **Redirects** after sign-in are built from `NEXT_PUBLIC_APP_URL`, never from request headers, and there is no `next` parameter. Text shown from the URL (for example login errors) must come from a fixed lookup table, never be echoed.
 14. New sign-up paths are blocked in the database by the "Before User Created" hook (`public.hook_restrict_signup`, allow-list in `public.allowed_emails`, Google provider only). The owner's email address is data in the database, never in this public repository. Setup steps are in `docs/SETUP-AUTH.md`.
+15. **Server actions** (`src/app/**/actions.ts`) always run in this order: `requireUser()`, validate everything from the browser with Zod (ids must be UUIDs; read only the known form fields), talk to the database as the signed-in user, return only generic error messages. The owner column is never sent by the app: the database fills `user_id` from the session. Tables grant `anon`/`authenticated` only the exact columns they may write.
+16. After a server action returns a validation error, the form must show what the user typed. Keep the `attempt` key in `TaskForm`, which rebuilds the fields after each result (a browser keeps a `<select>`'s old choice when new defaults arrive).
 
 ## Conventions
 

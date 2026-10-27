@@ -18,6 +18,28 @@ test.describe("signed-out visitor", () => {
     await expect(page).toHaveURL(/\/login$/); // sent to the login page, with the query string dropped
   });
 
+  test("cannot open a quest's edit page, whether the id is real or made up", async ({ page }) => {
+    for (const id of ["123e4567-e89b-42d3-a456-426614174000", "not-a-uuid", "%2e%2e%2fsecret"]) {
+      await page.goto(`/tasks/${id}`);
+      await expect(page).toHaveURL(/\/login$/);
+    }
+  });
+
+  test("gets no content from a path-traversal attempt, and the server keeps working", async ({
+    request,
+  }) => {
+    // Next.js refuses this particular form by closing the connection without a reply. Either a
+    // refusal status or a closed connection is acceptable; page content never is.
+    const outcome = await request
+      .get("/tasks/..%2F..%2Fetc%2Fpasswd", { maxRedirects: 0, failOnStatusCode: false })
+      .then(
+        (response) => response.status(),
+        () => "connection closed",
+      );
+    expect([307, 400, 404, "connection closed"]).toContain(outcome);
+    expect((await request.get("/login")).status()).toBe(200);
+  });
+
   test("sees a clear message when sign-in did not complete", async ({ page }) => {
     await page.goto("/auth/callback?error=access_denied");
     await expect(page).toHaveURL(/\/login\?error=signin_failed$/);
