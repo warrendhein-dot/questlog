@@ -69,6 +69,6 @@ A threat model answers four questions: what are we protecting, who or what could
 - [x] ~~Rate limiting for task creation.~~ Done in slice 3 (database trigger).
 - [ ] Rate limiting for the sign-in callback. It needs a store shared between server instances, so do it with the production deploy (slice 8).
 - [x] ~~Real end-to-end tests for signed-in flows.~~ Done: `e2e-signed-in/` runs in CI against a throwaway Supabase built from our migrations, with no test-only door in the app. It checks, through a real browser and a real login service: one user cannot see or change another's quests (pages, edit URL and direct API calls); a session cookie with a damaged signature is refused; a session cookie copied before sign-out stops working afterwards (the immediate revocation relied on in A3); and the creation limit is per user.
-- [ ] Add the "Signed-in browser tests (local Supabase)" check to the required checks on `main` once it has been green for a few runs.
+- [x] ~~Add the "Signed-in browser tests (local Supabase)" check to the required checks on `main`.~~ Done after four green runs in a row: it is now required alongside the other six checks, so a change that breaks privacy, sessions or the signed-in pages cannot be merged.
 - [ ] The sign-up hook is only tested at the database level. A future CI test could enable it in the throwaway stack and attempt a real sign-up.
 - [ ] Production: restrict the Supabase redirect URL list to the production origin only, and remove `localhost` entries.
