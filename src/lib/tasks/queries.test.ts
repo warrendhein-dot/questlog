@@ -1,0 +1,134 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { describe, expect, it } from "vitest";
+import { getTask, listOpenTasks, listRecentCompletedTasks } from "./queries";
+
+type Call = [string, unknown[]];
+
+/** A stand-in for the Supabase query builder: records each call and resolves to `result`. */
+function fakeSupabase(result: { data: unknown; error: unknown }) {
+  const calls: Call[] = [];
+  const chain: unknown = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        if (property === "then") return (resolve: (value: unknown) => void) => resolve(result);
+        return (...args: unknown[]) => {
+          calls.push([String(property), args]);
+          return chain;
+        };
+      },
+    },
+  );
+  const client = {
+    from: (table: string) => {
+      calls.push(["from", [table]]);
+      return chain;
+    },
+  } as unknown as SupabaseClient;
+  return { client, calls };
+}
+
+const row = {
+  id: "123e4567-e89b-42d3-a456-426614174000",
+  title: "Pay rent",
+  notes: "",
+  category: "home",
+  priority: "high",
+  due_date: "2026-11-01",
+  completed_at: null,
+};
+
+const task = {
+  id: row.id,
+  title: "Pay rent",
+  notes: "",
+  category: "home",
+  priority: "high",
+  dueDate: "2026-11-01",
+  completedAt: null,
+};
+
+describe("listOpenTasks", () => {
+  it("returns open tasks in the app's shape", async () => {
+    const { client } = fakeSupabase({ data: [row], error: null });
+    expect(await listOpenTasks(client)).toEqual([task]);
+  });
+
+  it("asks for open tasks only, soonest first, with undated ones last", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listOpenTasks(client);
+    expect(calls).toContainEqual(["from", ["tasks"]]);
+    expect(calls).toContainEqual(["is", ["completed_at", null]]);
+    expect(calls).toContainEqual(["order", ["due_date", { ascending: true, nullsFirst: false }]]);
+    expect(calls).toContainEqual(["order", ["priority", { ascending: false }]]);
+  });
+
+  it("copes with no rows", async () => {
+    const { client } = fakeSupabase({ data: null, error: null });
+    expect(await listOpenTasks(client)).toEqual([]);
+  });
+
+  it("throws a generic error that does not leak database details", async () => {
+    const { client } = fakeSupabase({
+      data: null,
+      error: { message: 'permission denied for table "tasks"' },
+    });
+    const attempt = listOpenTasks(client);
+    await expect(attempt).rejects.toThrow("Could not load your quests");
+    await expect(attempt).rejects.not.toThrow(/permission|tasks"/);
+  });
+
+  it("refuses rows that do not look like tasks", async () => {
+    const { client } = fakeSupabase({ data: [{ ...row, category: "combat" }], error: null });
+    await expect(listOpenTasks(client)).rejects.toThrow();
+  });
+});
+
+describe("listRecentCompletedTasks", () => {
+  it("asks for completed tasks, newest first, limited", async () => {
+    const { client, calls } = fakeSupabase({
+      data: [{ ...row, completed_at: "2026-10-27T08:00:00Z" }],
+      error: null,
+    });
+    const result = await listRecentCompletedTasks(client, 5);
+    expect(result[0]!.completedAt).toBe("2026-10-27T08:00:00Z");
+    expect(calls).toContainEqual(["not", ["completed_at", "is", null]]);
+    expect(calls).toContainEqual(["order", ["completed_at", { ascending: false }]]);
+    expect(calls).toContainEqual(["limit", [5]]);
+  });
+
+  it("defaults to the latest 20", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listRecentCompletedTasks(client);
+    expect(calls).toContainEqual(["limit", [20]]);
+  });
+
+  it("copes with no rows and throws a generic error on failure", async () => {
+    expect(
+      await listRecentCompletedTasks(fakeSupabase({ data: null, error: null }).client),
+    ).toEqual([]);
+    await expect(
+      listRecentCompletedTasks(fakeSupabase({ data: null, error: { message: "boom" } }).client),
+    ).rejects.toThrow("Could not load your completed quests");
+  });
+});
+
+describe("getTask", () => {
+  it("returns the task", async () => {
+    const { client, calls } = fakeSupabase({ data: row, error: null });
+    expect(await getTask(client, row.id)).toEqual(task);
+    expect(calls).toContainEqual(["eq", ["id", row.id]]);
+  });
+
+  it("returns null when there is no such task, or it belongs to someone else", async () => {
+    const { client } = fakeSupabase({ data: null, error: null });
+    expect(await getTask(client, row.id)).toBeNull();
+  });
+
+  it("throws a generic error on failure", async () => {
+    const { client } = fakeSupabase({ data: null, error: { message: "secret detail" } });
+    const attempt = getTask(client, row.id);
+    await expect(attempt).rejects.toThrow("Could not load the quest");
+    await expect(attempt).rejects.not.toThrow(/secret detail/);
+  });
+});
