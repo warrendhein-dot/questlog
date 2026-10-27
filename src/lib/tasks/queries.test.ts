@@ -48,10 +48,31 @@ const task = {
   completedAt: null,
 };
 
+// The lists also embed each quest's steps.
+const listRow = { ...row, subtasks: [] };
+const listTask = { ...task, stepsDone: 0, stepsTotal: 0 };
+
 describe("listOpenTasks", () => {
   it("returns open tasks in the app's shape", async () => {
-    const { client } = fakeSupabase({ data: [row], error: null });
-    expect(await listOpenTasks(client)).toEqual([task]);
+    const { client } = fakeSupabase({ data: [listRow], error: null });
+    expect(await listOpenTasks(client)).toEqual([listTask]);
+  });
+
+  it("counts how many of a quest's steps are done", async () => {
+    const subtasks = [
+      { completed_at: "2026-10-27T08:00:00Z" },
+      { completed_at: null },
+      { completed_at: "2026-10-27T09:00:00Z" },
+    ];
+    const { client } = fakeSupabase({ data: [{ ...listRow, subtasks }], error: null });
+    expect(await listOpenTasks(client)).toEqual([{ ...task, stepsDone: 2, stepsTotal: 3 }]);
+  });
+
+  it("asks for the steps along with the quests", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listOpenTasks(client);
+    const select = calls.find(([name]) => name === "select")!;
+    expect(String(select[1][0])).toContain("subtasks(completed_at)");
   });
 
   it("asks for open tasks only, soonest first, with undated ones last", async () => {
@@ -79,7 +100,12 @@ describe("listOpenTasks", () => {
   });
 
   it("refuses rows that do not look like tasks", async () => {
-    const { client } = fakeSupabase({ data: [{ ...row, category: "combat" }], error: null });
+    const { client } = fakeSupabase({ data: [{ ...listRow, category: "combat" }], error: null });
+    await expect(listOpenTasks(client)).rejects.toThrow();
+  });
+
+  it("refuses rows that come back without their steps", async () => {
+    const { client } = fakeSupabase({ data: [row], error: null });
     await expect(listOpenTasks(client)).rejects.toThrow();
   });
 });
@@ -87,7 +113,7 @@ describe("listOpenTasks", () => {
 describe("listRecentCompletedTasks", () => {
   it("asks for completed tasks, newest first, limited", async () => {
     const { client, calls } = fakeSupabase({
-      data: [{ ...row, completed_at: "2026-10-27T08:00:00Z" }],
+      data: [{ ...listRow, completed_at: "2026-10-27T08:00:00Z" }],
       error: null,
     });
     const result = await listRecentCompletedTasks(client, 5);

@@ -1,12 +1,12 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { Task } from "@/lib/tasks/schema";
+import type { TaskWithSteps } from "@/lib/tasks/queries";
 
 vi.mock("@/app/tasks/actions", () => ({ setTaskCompleted: vi.fn() }));
 
 import { TaskList } from "./task-list";
 
-const task: Task = {
+const task: TaskWithSteps = {
   id: "123e4567-e89b-42d3-a456-426614174000",
   title: "Pay rent",
   notes: "",
@@ -14,6 +14,8 @@ const task: Task = {
   priority: "high",
   dueDate: "2026-11-01",
   completedAt: null,
+  stepsDone: 0,
+  stepsTotal: 0,
 };
 
 describe("TaskList", () => {
@@ -36,6 +38,18 @@ describe("TaskList", () => {
   it("leaves out the due date when there is none", () => {
     render(<TaskList tasks={[{ ...task, dueDate: null }]} mode="open" emptyMessage="" />);
     expect(screen.getByText("Home · High priority")).toBeInTheDocument();
+  });
+
+  it("says how many steps are done when a quest has steps", () => {
+    render(
+      <TaskList tasks={[{ ...task, stepsDone: 2, stepsTotal: 5 }]} mode="open" emptyMessage="" />,
+    );
+    expect(screen.getByText("Steps: 2 of 5 done")).toBeInTheDocument();
+  });
+
+  it("says nothing about steps when a quest has none", () => {
+    render(<TaskList tasks={[task]} mode="open" emptyMessage="" />);
+    expect(screen.queryByText(/Steps:/)).not.toBeInTheDocument();
   });
 
   it("offers a Complete button that names the quest, for screen readers", () => {
