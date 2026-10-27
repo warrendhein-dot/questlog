@@ -22,7 +22,7 @@ TypeScript, Next.js 16 (App Router), React 19, Tailwind CSS 4, Zod, Vitest + Tes
 | `npm run test:e2e`      | Builds, then runs Playwright against the production build          |
 | `npm run format`        | Auto-format with Prettier                                          |
 
-Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes or headers change.
+Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes or headers change. `npm run test:e2e:signed-in` runs the signed-in browser tests (`e2e-signed-in/`) against a throwaway Supabase started with `npx supabase start`; it needs Docker, which the owner's PC does not have, so **only CI runs it** (job "Signed-in browser tests (local Supabase)"). When you change signed-in behaviour, add or update a test there too and read that job's result.
 
 ## Workflow rules
 
@@ -56,6 +56,7 @@ Run `npm run check` before every commit. Run `npm run test:e2e` when UI, routes 
 - Path alias `@/` maps to `src/`.
 - Unit tests sit next to the code (`foo.ts` / `foo.test.ts`); browser tests live in `e2e/`; database security tests live in `supabase/tests/` and run against an in-process Postgres (PGlite) with Supabase's `auth` schema recreated, so they need no cloud account or secrets.
 - Browser tests (`e2e/`) run against the production build with placeholder Supabase settings injected by `playwright.config.ts`, so they need no accounts. Target the page's `<main>` when asserting on `role="alert"`, because Next.js adds its own invisible alert region.
+- Signed-in browser tests get their session **without any test-only door in the app**: `e2e-signed-in/support/session.ts` signs a fresh test user in with a password against the throwaway stack, using the real Supabase library, and puts the resulting cookie in the browser. Never add a bypass route, a fake-auth flag or a hard-coded test user to the app for the sake of tests. Each test creates its own user, so tests never share data and nothing needs cleaning up. The app accepts plain `http` Supabase addresses only for `localhost` / `127.0.0.1` (see `src/lib/env.ts`).
 - In Vitest, helpers used inside `vi.mock(...)` factories must be created with `vi.hoisted(...)` when the module under test is imported statically.
 - When adding security-critical code, **mutation-check its tests**: deliberately weaken the code (remove the check) and confirm a test fails, then restore it. A security test that has never failed proves nothing.
 - Supabase environment variables are read through `getSupabaseEnv()` in `src/lib/env.ts` (validated, only when first needed). Local values go in the git-ignored `.env.local`.

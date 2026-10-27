@@ -93,3 +93,47 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+  e2e-signed-in:
+    name: Signed-in browser tests (local Supabase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # Supabase's own action, with the CLI version pinned to the one we develop with.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+      # A private, throwaway Supabase in Docker: database, login service and API only. `start` builds
+      # the database from supabase/migrations, so the tests run against our real tables, security
+      # rules and rate limit. Its keys are generated locally and work nowhere else.
+      - name: Start local Supabase
+        run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      # Playwright builds and starts the production app itself, pointed at the throwaway stack
+      # (see playwright.signed-in.config.ts).
+      - name: Run signed-in browser tests
+        run: npm run test:e2e:signed-in
+      - name: Show service logs after a failure
+        if: failure()
+        run: |
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}'
+          for name in $(docker ps -a --format '{{.Names}}'); do
+            echo "=== $name ==="
+            docker logs --tail 25 "$name" 2>&1 | cut -c1-300
+          done
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report-signed-in
+          path: playwright-report/
+          retention-days: 14
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
