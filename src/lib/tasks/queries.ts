@@ -6,7 +6,7 @@ import { TASK_CATEGORIES, TASK_PRIORITIES, type Task } from "./schema";
 /** A quest for the lists: the quest itself plus how many of its steps are ticked. */
 export type TaskWithSteps = Task & StepProgress;
 
-const COLUMNS = "id, title, notes, category, priority, due_date, completed_at";
+const COLUMNS = "id, title, notes, category, priority, due_date, completed_at, pinned_for";
 
 // Rows from the database are checked too. If the table ever changes shape, we find out here, loudly,
 // not three screens later.
@@ -18,6 +18,7 @@ const taskRowSchema = z.object({
   priority: z.enum(TASK_PRIORITIES),
   due_date: z.string().nullable(),
   completed_at: z.string().nullable(),
+  pinned_for: z.string().nullable(),
 });
 
 // The lists also fetch each quest's steps (just whether they are ticked) to show "2 of 5 done".
@@ -38,6 +39,7 @@ function toTask(row: unknown): Task {
     priority: parsed.priority,
     dueDate: parsed.due_date,
     completedAt: parsed.completed_at,
+    pinnedFor: parsed.pinned_for,
   };
 }
 

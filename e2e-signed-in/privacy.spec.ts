@@ -8,7 +8,7 @@ import { clientFor, createTestUser } from "./support/users";
 test.describe("one user cannot reach another's quests", () => {
   test("through the pages, the edit URL, and the API", async ({ page, user, browser, baseURL }) => {
     // Alice (the signed-in `page`) creates a quest and we note its id.
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Alice's private quest");
     const href = await page
       .getByRole("link", { name: "Alice's private quest" })
@@ -22,7 +22,7 @@ test.describe("one user cannot reach another's quests", () => {
     const bobPage = await bobContext.newPage();
 
     // 1. His quest list does not show hers.
-    await bobPage.goto("/");
+    await bobPage.goto("/?view=all");
     await expect(bobPage.getByText("Signed in as " + bob.email)).toBeVisible();
     await expect(bobPage.getByText("Alice's private quest")).toHaveCount(0);
     await expect(bobPage.getByText("No open quests. Add your first one above.")).toBeVisible();
@@ -61,7 +61,7 @@ test.describe("one user cannot reach another's quests", () => {
 
   test("nor reach, change, or add to her steps", async ({ page, user, browser, baseURL }) => {
     // Alice creates a quest with one step, through her own session.
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Alice's private quest");
     const href = await page
       .getByRole("link", { name: "Alice's private quest" })
@@ -132,10 +132,10 @@ test.describe("one user cannot reach another's quests", () => {
     const bobContext = await browser.newContext({ baseURL });
     await signIn(bobContext, baseURL!, bob);
     const bobPage = await bobContext.newPage();
-    await bobPage.goto("/");
+    await bobPage.goto("/?view=all");
     await addQuest(bobPage, "Bob's first quest");
 
-    await page.goto("/");
+    await page.goto("/?view=all");
     await page.getByLabel("Quest name").fill("Alice's extra");
     await page.getByRole("button", { name: "Add quest" }).click();
     await expect(page.getByRole("main").getByRole("alert")).toContainText("very quickly");

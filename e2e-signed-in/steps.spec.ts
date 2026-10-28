@@ -23,7 +23,7 @@ const steps = (page: Page) => page.getByRole("region", { name: "Steps" });
 
 test.describe("steps on the edit page", () => {
   test("starts with an invitation to add the first step", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await expect(steps(page).getByText(/No steps yet/)).toBeVisible();
@@ -33,7 +33,7 @@ test.describe("steps on the edit page", () => {
   test("adds steps in order, still there after a reload, and counts them on the home list", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Book the venue");
@@ -44,12 +44,12 @@ test.describe("steps on the edit page", () => {
     const titles = await steps(page).getByRole("listitem").locator("span").allTextContents();
     expect(titles).toEqual(["Book the venue", "Send invitations"]);
 
-    await page.goto("/");
+    await page.goto("/?view=all");
     await expect(page.getByText("Steps: 0 of 2 done")).toBeVisible();
   });
 
   test("ticks and un-ticks a step, and the home list follows", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Book the venue");
@@ -59,7 +59,7 @@ test.describe("steps on the edit page", () => {
     await expect(steps(page).getByText("1 of 2 done")).toBeVisible();
     await expect(page.getByRole("button", { name: "Undo step: Book the venue" })).toBeVisible();
 
-    await page.goto("/");
+    await page.goto("/?view=all");
     await expect(page.getByText("Steps: 1 of 2 done")).toBeVisible();
 
     await openQuest(page, "Plan the party");
@@ -70,7 +70,7 @@ test.describe("steps on the edit page", () => {
   test("offers to complete the quest when the last step is ticked, but waits to be asked", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Book the venue");
@@ -84,7 +84,7 @@ test.describe("steps on the edit page", () => {
     await expect(page.getByText("All steps done. Complete the quest?")).toBeVisible();
 
     // Nothing completed by itself: the quest is still open on the home page.
-    await page.goto("/");
+    await page.goto("/?view=all");
     await expect(
       page
         .getByRole("region", { name: "Open quests" })
@@ -97,14 +97,14 @@ test.describe("steps on the edit page", () => {
     await page.getByRole("button", { name: "Complete quest", exact: true }).click();
     await expect(page.getByText("This quest is completed.")).toBeVisible();
     await expect(page.getByText("All steps done. Complete the quest?")).toHaveCount(0);
-    await page.goto("/");
+    await page.goto("/?view=all");
     await expect(
       page.getByRole("region", { name: "Completed" }).getByRole("link", { name: "Plan the party" }),
     ).toBeVisible();
   });
 
   test("removes a step", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Book the venue");
@@ -117,18 +117,18 @@ test.describe("steps on the edit page", () => {
   });
 
   test("goes back to the plain list when the last step is removed", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Only step");
     await page.getByRole("button", { name: "Remove step: Only step" }).click();
     await expect(steps(page).getByText(/No steps yet/)).toBeVisible();
-    await page.goto("/");
+    await page.goto("/?view=all");
     await expect(page.getByText(/Steps:/)).toHaveCount(0);
   });
 
   test("can be used with the keyboard alone", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await page.getByLabel("New step").focus();
@@ -142,7 +142,7 @@ test.describe("steps on the edit page", () => {
 
 test.describe("mistakes and hostile input", () => {
   test("asks for a name and keeps the field when a step has none", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await page.getByLabel("New step").fill("   ");
@@ -153,7 +153,7 @@ test.describe("mistakes and hostile input", () => {
   });
 
   test("shows markup in a step name as plain text", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, '<img src=x onerror="window.pwned=1"> <b>bold</b>');
@@ -164,7 +164,7 @@ test.describe("mistakes and hostile input", () => {
   });
 
   test("tells the user plainly when a quest is full", async ({ page, user }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     const href = await page.getByRole("link", { name: "Plan the party" }).getAttribute("href");
     const taskId = href!.split("/").pop()!;
@@ -193,7 +193,7 @@ test.describe("quality", () => {
     });
     page.on("pageerror", (error) => errors.push(error.message));
 
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Book the venue");
@@ -208,7 +208,7 @@ test.describe("quality", () => {
   test("has no detectable accessibility violations with steps, ticked steps and the offer on screen", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/?view=all");
     await addQuest(page, "Plan the party");
     await openQuest(page, "Plan the party");
     await addStep(page, "Book the venue");
@@ -225,7 +225,7 @@ test.describe("quality", () => {
     expect((await new AxeBuilder({ page }).withTags(tags).analyze()).violations).toEqual([]);
 
     // And the home list with its step count.
-    await page.goto("/");
+    await page.goto("/?view=all");
     await expect(page.getByText("Steps: 2 of 2 done")).toBeVisible();
     expect((await new AxeBuilder({ page }).withTags(tags).analyze()).violations).toEqual([]);
   });

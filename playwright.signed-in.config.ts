@@ -23,6 +23,9 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
+    // Pinned, so "today" is the same date for the browser, the app and the tests whatever machine
+    // runs them. A test that needs another time zone makes its own browser context.
+    timezoneId: "UTC",
   },
   projects: [{ name: "desktop", use: { ...devices["Desktop Chrome"] } }],
   // Tests run against the real production build, pointed at the throwaway stack. The values are

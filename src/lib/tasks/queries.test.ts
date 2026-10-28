@@ -36,6 +36,7 @@ const row = {
   priority: "high",
   due_date: "2026-11-01",
   completed_at: null,
+  pinned_for: null,
 };
 
 const task = {
@@ -46,6 +47,7 @@ const task = {
   priority: "high",
   dueDate: "2026-11-01",
   completedAt: null,
+  pinnedFor: null,
 };
 
 // The lists also embed each quest's steps.
@@ -66,6 +68,21 @@ describe("listOpenTasks", () => {
     ];
     const { client } = fakeSupabase({ data: [{ ...listRow, subtasks }], error: null });
     expect(await listOpenTasks(client)).toEqual([{ ...task, stepsDone: 2, stepsTotal: 3 }]);
+  });
+
+  it("returns the day a quest is pinned to", async () => {
+    const { client } = fakeSupabase({
+      data: [{ ...listRow, pinned_for: "2026-10-28" }],
+      error: null,
+    });
+    expect((await listOpenTasks(client))[0]!.pinnedFor).toBe("2026-10-28");
+  });
+
+  it("asks for the pinned day along with the other columns", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listOpenTasks(client);
+    const select = calls.find(([name]) => name === "select")!;
+    expect(String(select[1][0])).toContain("pinned_for");
   });
 
   it("asks for the steps along with the quests", async () => {
