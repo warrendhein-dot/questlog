@@ -174,6 +174,9 @@ test.describe("Undo on a repeating quest", () => {
     await open(page).getByRole("link", { name: "Keep my edits" }).click();
     await page.getByLabel("Quest name").fill("Keep my edits (renamed)");
     await page.getByRole("button", { name: "Save changes" }).click();
+    // Wait for the save to finish (it returns to the home page) before navigating away, or the
+    // browser can cancel the save part-way.
+    await expect(page).toHaveURL(/\/$/);
     await page.goto("/?view=all");
 
     await page.getByRole("button", { name: "Undo quest: Keep my edits" }).click();
@@ -236,6 +239,7 @@ test.describe("setting the rule", () => {
     await page.getByLabel("Repeats").selectOption("monthly");
     await page.getByLabel("Every (number of days, weeks or months)").fill("3");
     await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page).toHaveURL(/\/$/);
     await page.goto("/?view=all");
     await expect(open(page).getByText("Repeats every 3 months")).toBeVisible();
 
@@ -244,6 +248,7 @@ test.describe("setting the rule", () => {
     await expect(page.getByLabel("Every (number of days, weeks or months)")).toHaveValue("3");
     await page.getByLabel("Repeats").selectOption("none");
     await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page).toHaveURL(/\/$/);
     await page.goto("/?view=all");
     await expect(open(page).getByText(/Repeats/)).toHaveCount(0);
   });
