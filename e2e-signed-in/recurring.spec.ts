@@ -24,6 +24,17 @@ async function idOf(page: Page, title: string): Promise<string> {
   return href!.split("/").pop()!;
 }
 
+/**
+ * Opens a quest's edit page and waits until it is really on screen. The home page has its own
+ * "New quest" form whose fields carry the same labels ("Quest name", "Repeats"), and it stays
+ * visible for a moment after the click; a test that filled a field straight away would be typing
+ * into the home page's form and then lose it when the edit page replaced it.
+ */
+async function openEditPage(page: Page, title: string): Promise<void> {
+  await open(page).getByRole("link", { name: title, exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+}
+
 test.describe("completing a repeating quest", () => {
   test("creates the next one, due on the next scheduled date", async ({ page }) => {
     const start = today();
@@ -171,11 +182,10 @@ test.describe("Undo on a repeating quest", () => {
     await expect(done(page).getByRole("link", { name: "Keep my edits" })).toBeVisible();
 
     // Rename the new one.
-    await open(page).getByRole("link", { name: "Keep my edits" }).click();
+    await openEditPage(page, "Keep my edits");
     await page.getByLabel("Quest name").fill("Keep my edits (renamed)");
     await page.getByRole("button", { name: "Save changes" }).click();
-    // Wait for the save to finish (it returns to the home page) before navigating away, or the
-    // browser can cancel the save part-way.
+    // Saving returns to the home page; wait for that so we never navigate away mid-save.
     await expect(page).toHaveURL(/\/$/);
     await page.goto("/?view=all");
 
@@ -235,7 +245,7 @@ test.describe("setting the rule", () => {
     await addQuest(page, "Switch me", { dueDate: today() });
     await expect(open(page).getByText(/Repeats/)).toHaveCount(0);
 
-    await page.getByRole("link", { name: "Switch me" }).click();
+    await openEditPage(page, "Switch me");
     await page.getByLabel("Repeats").selectOption("monthly");
     await page.getByLabel("Every (number of days, weeks or months)").fill("3");
     await page.getByRole("button", { name: "Save changes" }).click();
@@ -243,7 +253,7 @@ test.describe("setting the rule", () => {
     await page.goto("/?view=all");
     await expect(open(page).getByText("Repeats every 3 months")).toBeVisible();
 
-    await page.getByRole("link", { name: "Switch me" }).click();
+    await openEditPage(page, "Switch me");
     await expect(page.getByLabel("Repeats")).toHaveValue("monthly");
     await expect(page.getByLabel("Every (number of days, weeks or months)")).toHaveValue("3");
     await page.getByLabel("Repeats").selectOption("none");
