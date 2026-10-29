@@ -35,6 +35,7 @@ const open: TaskWithSteps = {
   dueDate: "2026-11-01",
   completedAt: null,
   pinnedFor: null,
+  recurrence: null,
   stepsDone: 0,
   stepsTotal: 0,
 };

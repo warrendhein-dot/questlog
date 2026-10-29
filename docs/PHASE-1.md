@@ -26,8 +26,8 @@ All tables carry `user_id` (owner) and are protected by row-level security: `use
 - `title` (1-200 chars), `notes` (max 5000 chars)
 - `category` (enum of the five), `priority` (`low` | `normal` | `high`)
 - `due_date` (date, nullable), `pinned_for` (date, nullable)
+- `recur_frequency`, `recur_interval`, `recur_weekdays` (the repeat rule, see 4.3), `recurrence_anchor` and `recurred_from` (set by the database only)
 - `completed_at` (timestamptz, nullable), `deleted_at` (timestamptz, nullable)
-- `recurrence` (jsonb, nullable; validated by a Zod schema: frequency, interval, weekdays)
 - `created_at`, `updated_at`
 - Reserved for later phases (nullable, unused now): `size`, `source`, `source_ref`
 
@@ -52,7 +52,7 @@ Each slice is one branch, one PR, with tests, and merges only with green CI.
 | 3   | Tasks: create and list | `tasks` table with RLS, create, edit and complete (T1, T2, T3), Zod validation of every input, server actions                                                   |
 | 4   | Subtasks               | T4: one level of steps on the edit page, with an offer to complete the quest when all are ticked                                                                |
 | 5   | Today and This week    | T6: tabs on the home page (opens on Today), overdue handling, pinning to today, the browser's time zone saved to the profile                                    |
-| 6   | Recurring              | T5: pure `nextOccurrence()` function with thorough unit tests, then wiring on completion                                                                        |
+| 6   | Recurring              | T5: pure `nextOccurrence()` function with thorough unit tests, then wiring on completion (completion moved into database functions)                             |
 | 7   | Trash                  | T7: soft delete, restore, scheduled purge after 30 days                                                                                                         |
 | 8   | Deploy                 | Vercel project, preview deployment per PR, production environment variables, security review of the live site                                                   |
 
@@ -71,12 +71,16 @@ Completing sets `completed_at`. A completed task leaves Today and appears under 
 - Steps are added, ticked, un-ticked and removed on the edit page. Removing a step deletes it for good (steps are small; the Trash is for quests). Renaming a step is not built yet.
 - Soft-deleting a parent soft-deletes its subtasks; restoring restores them. (Slice 7.)
 
-### 4.3 Recurring (default rule; confirm in review)
+### 4.3 Recurring (built in slice 6; the owner confirmed the rules below)
 
-- A recurrence is `frequency` (daily, weekly, monthly), `interval` (every N), and for weekly an optional list of weekdays.
-- Completing an occurrence creates the next one at the **first scheduled date after today**. If you were three Mondays late, you get next Monday, not three duplicates.
-- Subtasks of a recurring task are copied (uncompleted) to the next occurrence.
-- Skipping an occurrence = deleting it; the series continues only if it was completed, so deleting the final occurrence ends the series. (To revisit.)
+- A rule is `frequency` (daily, weekly, monthly), `interval` (every N, 1 to 365), and for weekly an optional list of weekdays (stored as three columns on `tasks`, with table checks, rather than a JSON blob). A repeating quest must have a due date: the series is built from it.
+- Completing an occurrence creates the next one at the **first scheduled date after the later of the due date and today** (`nextOccurrence()` in `src/lib/tasks/recurrence.ts`). If you were three Mondays late, you get next Monday, not three duplicates; if you finish early, the schedule is not pulled forward.
+- Every date is worked out from the series' **anchor** (its first due date), never from the previous occurrence, so "monthly on the 31st" goes 31 Jan, 28 Feb, 31 Mar instead of drifting to the 28th. Editing the rule or this quest's due date re-anchors the series on the new due date; other edits do not.
+- Weekly with weekdays ticked: those days in every Nth week (weeks run Monday to Sunday, counted from the anchor's week). A month too short for the anchor's day uses its last day. A series ends if the next date would be past 2100.
+- Steps of a repeating quest are copied (unticked, in order) to the next occurrence.
+- **One step in the database**: completing a quest, creating the next one and copying its steps happen inside `complete_task()`, so either all of it happens or none, and a double click cannot create two next quests. The same function stamps the completion time with the database's clock (closing threat model A4); the API can no longer write `completed_at`.
+- **Undo** (`reopen_task()`) re-opens the quest and removes the next occurrence it created, but only if that one is untouched (still open, never edited, no step ticked). Anything you have worked on is kept, so Undo never destroys work. Completing again after Undo never adds a second next occurrence.
+- Deleting an occurrence ends the series: only completing creates the next one. (Trash arrives in slice 7, which makes this rule real.)
 
 ### 4.4 Today view order
 

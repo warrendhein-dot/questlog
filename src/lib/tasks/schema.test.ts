@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_TASK_FORM, parseTaskForm, parseTaskId, toFormValues, type Task } from "./schema";
+import {
+  EMPTY_TASK_FORM,
+  inputToFormValues,
+  parseTaskForm,
+  parseTaskId,
+  toFormValues,
+  type Task,
+} from "./schema";
 
-function form(fields: Record<string, string | Blob>) {
+/** A submitted form. A list value (the weekday boxes) is added once per item, like a browser does. */
+function form(fields: Record<string, string | string[] | Blob>) {
   const data = new FormData();
-  for (const [key, value] of Object.entries(fields)) data.set(key, value);
+  for (const [key, value] of Object.entries(fields)) {
+    if (Array.isArray(value)) for (const item of value) data.append(key, item);
+    else data.set(key, value);
+  }
   return data;
 }
 
@@ -14,6 +25,13 @@ const valid = {
   priority: "normal",
   dueDate: "",
 };
+
+/** Submits the form and expects it to be refused, returning the refusal. */
+function errorsFor(fields: Record<string, string | string[] | Blob>) {
+  const result = parseTaskForm(form(fields));
+  if (result.success) throw new Error("expected the form to be rejected");
+  return result;
+}
 
 describe("parseTaskForm: valid input", () => {
   it("accepts a complete form", () => {
@@ -28,6 +46,7 @@ describe("parseTaskForm: valid input", () => {
         category: "work",
         priority: "high",
         dueDate: "2026-12-24",
+        recurrence: null,
       },
     });
   });
@@ -68,18 +87,13 @@ describe("parseTaskForm: valid input", () => {
       "dueDate",
       "notes",
       "priority",
+      "recurrence",
       "title",
     ]);
   });
 });
 
 describe("parseTaskForm: invalid input", () => {
-  const errorsFor = (fields: Record<string, string | Blob>) => {
-    const result = parseTaskForm(form(fields));
-    if (result.success) throw new Error("expected the form to be rejected");
-    return result;
-  };
-
   it.each([
     ["an empty title", { title: "" }, "title"],
     ["a whitespace-only title", { title: "   " }, "title"],
@@ -109,7 +123,14 @@ describe("parseTaskForm: invalid input", () => {
 
   it("hands back what was typed so the form can show it again", () => {
     const result = errorsFor({ ...valid, title: "", notes: "Keep me" });
-    expect(result.values).toEqual({ ...valid, title: "", notes: "Keep me" });
+    expect(result.values).toEqual({
+      ...valid,
+      title: "",
+      notes: "Keep me",
+      repeat: "none",
+      interval: "",
+      weekdays: [],
+    });
   });
 
   it("reports only the first problem per field", () => {
@@ -143,6 +164,7 @@ describe("toFormValues", () => {
     dueDate: "2026-11-01",
     completedAt: null,
     pinnedFor: null,
+    recurrence: null,
   };
 
   it("turns a task into form values", () => {
@@ -152,7 +174,18 @@ describe("toFormValues", () => {
       category: "home",
       priority: "high",
       dueDate: "2026-11-01",
+      repeat: "none",
+      interval: "1",
+      weekdays: [],
     });
+  });
+
+  it("fills in the repeat fields for a repeating quest", () => {
+    const values = toFormValues({
+      ...task,
+      recurrence: { frequency: "weekly", interval: 2, weekdays: [1, 4] },
+    });
+    expect(values).toMatchObject({ repeat: "weekly", interval: "2", weekdays: ["1", "4"] });
   });
 
   it("shows no date as an empty field", () => {
@@ -166,6 +199,112 @@ describe("toFormValues", () => {
       category: "work",
       priority: "normal",
       dueDate: "",
+      repeat: "none",
+      interval: "1",
+      weekdays: [],
+    });
+  });
+});
+
+describe("inputToFormValues", () => {
+  it("turns a validated input back into form values, rule included", () => {
+    expect(
+      inputToFormValues({
+        title: "Water the plants",
+        notes: "",
+        category: "home",
+        priority: "low",
+        dueDate: "2026-12-24",
+        recurrence: { frequency: "monthly", interval: 3, weekdays: [] },
+      }),
+    ).toEqual({
+      title: "Water the plants",
+      notes: "",
+      category: "home",
+      priority: "low",
+      dueDate: "2026-12-24",
+      repeat: "monthly",
+      interval: "3",
+      weekdays: [],
+    });
+  });
+
+  it("shows no date and no rule as empty and none", () => {
+    expect(
+      inputToFormValues({
+        title: "T",
+        notes: "",
+        category: "work",
+        priority: "normal",
+        dueDate: null,
+        recurrence: null,
+      }),
+    ).toMatchObject({ dueDate: "", repeat: "none" });
+  });
+});
+
+describe("parseTaskForm: repeating quests", () => {
+  const repeating = { ...valid, dueDate: "2026-12-24" };
+
+  it("reads a repeat rule along with the quest", () => {
+    const result = parseTaskForm(
+      form({ ...repeating, repeat: "weekly", interval: "2", weekdays: ["4", "1"] }),
+    );
+    expect(result).toMatchObject({
+      success: true,
+      data: { recurrence: { frequency: "weekly", interval: 2, weekdays: [1, 4] } },
+    });
+  });
+
+  it("treats a form without repeat fields as a quest that does not repeat", () => {
+    expect(parseTaskForm(form(repeating))).toMatchObject({
+      success: true,
+      data: { recurrence: null },
+    });
+  });
+
+  it("needs a due date for a repeating quest, and says so on the date field", () => {
+    const result = errorsFor({ ...valid, repeat: "daily", interval: "1" });
+    expect(result.errors).toEqual({
+      dueDate: "Pick a due date: a repeating quest needs a date to start from.",
+    });
+  });
+
+  it("does not ask for a due date when the quest does not repeat", () => {
+    expect(parseTaskForm(form({ ...valid, repeat: "none" })).success).toBe(true);
+  });
+
+  it("ignores the other repeat fields when the quest does not repeat", () => {
+    const result = parseTaskForm(
+      form({ ...repeating, repeat: "none", interval: "banana", weekdays: ["9"] }),
+    );
+    expect(result).toMatchObject({ success: true, data: { recurrence: null } });
+  });
+
+  it("reports repeat mistakes on their own fields and hands back what was typed", () => {
+    const result = errorsFor({ ...repeating, repeat: "weekly", interval: "0", weekdays: ["9"] });
+    expect(Object.keys(result.errors).sort()).toEqual(["interval", "weekdays"]);
+    expect(result.values).toMatchObject({ repeat: "weekly", interval: "0", weekdays: ["9"] });
+  });
+
+  it("reports an unknown repeat choice", () => {
+    expect(errorsFor({ ...repeating, repeat: "hourly" }).errors).toEqual({
+      repeat: "Pick how often the quest repeats.",
+    });
+  });
+
+  it("reports quest mistakes and repeat mistakes together", () => {
+    const result = errorsFor({ ...repeating, title: "", repeat: "daily", interval: "x" });
+    expect(Object.keys(result.errors).sort()).toEqual(["interval", "title"]);
+  });
+
+  it("ignores file uploads in the repeat fields", () => {
+    const data = form({ ...repeating, repeat: "daily" });
+    data.set("interval", new Blob(["x"]));
+    data.append("weekdays", new Blob(["x"]));
+    expect(parseTaskForm(data)).toMatchObject({
+      success: true,
+      data: { recurrence: { frequency: "daily", interval: 1, weekdays: [] } },
     });
   });
 });

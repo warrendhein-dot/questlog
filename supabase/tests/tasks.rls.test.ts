@@ -98,12 +98,12 @@ describe("tasks: who can see and change what", () => {
         "update public.tasks set title = 'Renamed', priority = 'high', due_date = '2026-12-24' where id = $1",
         [aliceTaskId],
       );
-      await q("update public.tasks set completed_at = now() where id = $1", [aliceTaskId]);
+      await q("select public.complete_task($1)", [aliceTaskId]);
       const done = await q<{ completed_at: string | null }>(
         "select completed_at from public.tasks where id = $1",
         [aliceTaskId],
       );
-      await q("update public.tasks set completed_at = null where id = $1", [aliceTaskId]);
+      await q("select public.reopen_task($1)", [aliceTaskId]);
       const undone = await q<{ title: string; completed_at: string | null }>(
         "select title, completed_at from public.tasks where id = $1",
         [aliceTaskId],
@@ -112,6 +112,20 @@ describe("tasks: who can see and change what", () => {
     });
     expect(result.done).not.toBeNull();
     expect(result.undone).toEqual({ title: "Renamed", completed_at: null });
+  });
+
+  it("stamps the completion time itself: the API cannot write completed_at", async () => {
+    // Completing goes through complete_task(), which uses the database's own clock (threat model A4).
+    await expect(
+      asUser(db, alice, (q) =>
+        q("update public.tasks set completed_at = '2020-01-01' where id = $1", [aliceTaskId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asUser(db, alice, (q) =>
+        q("update public.tasks set completed_at = null where id = $1", [aliceTaskId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
   });
 
   it.each(["user_id", "id", "created_at"])("never lets a user change %s", async (column) => {

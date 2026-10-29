@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { setTaskCompleted, setTaskPinned } from "@/app/tasks/actions";
 import type { TaskWithSteps } from "@/lib/tasks/queries";
+import { describeRecurrence } from "@/lib/tasks/recurrence";
 import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/tasks/schema";
 
 type Props = {
@@ -40,6 +41,9 @@ export function TaskList({ tasks, mode, emptyMessage, today }: Props) {
               {CATEGORY_LABELS[task.category]} · {PRIORITY_LABELS[task.priority]} priority
               {task.dueDate ? ` · Due ${task.dueDate}` : ""}
             </p>
+            {task.recurrence && (
+              <p className="mt-1 text-sm">{describeRecurrence(task.recurrence)}</p>
+            )}
             {task.stepsTotal > 0 && (
               <p className="mt-1 text-sm">
                 Steps: {task.stepsDone} of {task.stepsTotal} done

@@ -82,6 +82,7 @@ const base: Task = {
   dueDate: null,
   completedAt: null,
   pinnedFor: null,
+  recurrence: null,
 };
 const quest = (title: string, extra: Partial<Task> = {}): Task => ({ ...base, title, ...extra });
 const titles = (list: Task[]) => list.map((t) => t.title);
