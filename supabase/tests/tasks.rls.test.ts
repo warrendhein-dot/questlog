@@ -124,6 +124,60 @@ describe("tasks: who can see and change what", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
+  it("lets a user pin their own task to a day, and unpin it", async () => {
+    const result = await asUser(db, alice, async (q) => {
+      await q("update public.tasks set pinned_for = '2026-10-28' where id = $1", [aliceTaskId]);
+      const pinned = await q<{ pinned_for: string | null }>(
+        "select pinned_for::text from public.tasks where id = $1",
+        [aliceTaskId],
+      );
+      await q("update public.tasks set pinned_for = null where id = $1", [aliceTaskId]);
+      const unpinned = await q<{ pinned_for: string | null }>(
+        "select pinned_for::text from public.tasks where id = $1",
+        [aliceTaskId],
+      );
+      return { pinned: pinned.rows[0]!.pinned_for, unpinned: unpinned.rows[0]!.pinned_for };
+    });
+    expect(result).toEqual({ pinned: "2026-10-28", unpinned: null });
+  });
+
+  it("silently ignores pinning someone else's task", async () => {
+    const result = await asUser(db, alice, (q) =>
+      q("update public.tasks set pinned_for = '2026-10-28' where id = $1", [bobTaskId]),
+    );
+    expect(result.affectedRows).toBe(0);
+    const bobs = await db.query<{ pinned_for: string | null }>(
+      "select pinned_for::text from public.tasks where id = $1",
+      [bobTaskId],
+    );
+    expect(bobs.rows[0]!.pinned_for).toBeNull();
+  });
+
+  it("starts unpinned, and cannot be pinned at creation", async () => {
+    const pin = await asUser(db, alice, async (q) => {
+      const result = await q<{ pinned_for: string | null }>(
+        "insert into public.tasks (title, category) values ('Plain', 'work') returning pinned_for",
+      );
+      return result.rows[0]!.pinned_for;
+    });
+    expect(pin).toBeNull();
+    await expect(
+      asUser(db, alice, (q) =>
+        q(
+          "insert into public.tasks (title, category, pinned_for) values ('X', 'work', '2026-10-28')",
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+
+  it.each(["1999-12-31", "2101-01-01"])("rejects the implausible pin date %s", async (date) => {
+    await expect(
+      asUser(db, alice, (q) =>
+        q("update public.tasks set pinned_for = $1 where id = $2", [date, aliceTaskId]),
+      ),
+    ).rejects.toThrow(/check constraint/);
+  });
+
   it("does not let users delete tasks (yet)", async () => {
     await expect(asUser(db, alice, (q) => q("delete from public.tasks"))).rejects.toThrow(
       /permission denied/,

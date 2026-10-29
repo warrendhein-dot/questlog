@@ -142,6 +142,7 @@ describe("toFormValues", () => {
     priority: "high",
     dueDate: "2026-11-01",
     completedAt: null,
+    pinnedFor: null,
   };
 
   it("turns a task into form values", () => {

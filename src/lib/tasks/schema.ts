@@ -30,6 +30,8 @@ export type Task = {
   /** Calendar date as YYYY-MM-DD. Kept as text on purpose: parsing it into a Date shifts it by time zone. */
   dueDate: string | null;
   completedAt: string | null;
+  /** The day (YYYY-MM-DD) this quest is pinned to the Today view, or null. A pin only counts on its own day. */
+  pinnedFor: string | null;
 };
 
 /** What the form holds: always strings, because that is what a browser submits. */

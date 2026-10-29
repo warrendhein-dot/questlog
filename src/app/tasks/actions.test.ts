@@ -1,31 +1,40 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireUser, redirect, revalidatePath, insert, update, selectAfterUpdate, eq } = vi.hoisted(
-  () => {
-    const selectAfterUpdate = vi.fn();
-    const eq = vi.fn();
-    return {
-      requireUser: vi.fn(),
-      redirect: vi.fn((url: string) => {
-        throw new Error(`NEXT_REDIRECT:${url}`);
-      }),
-      revalidatePath: vi.fn(),
-      insert: vi.fn(),
-      update: vi.fn(),
-      selectAfterUpdate,
-      eq,
-    };
-  },
-);
+const {
+  requireUser,
+  getTimeZone,
+  redirect,
+  revalidatePath,
+  insert,
+  update,
+  selectAfterUpdate,
+  eq,
+} = vi.hoisted(() => {
+  const selectAfterUpdate = vi.fn();
+  const eq = vi.fn();
+  return {
+    requireUser: vi.fn(),
+    getTimeZone: vi.fn(),
+    redirect: vi.fn((url: string) => {
+      throw new Error(`NEXT_REDIRECT:${url}`);
+    }),
+    revalidatePath: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
+    selectAfterUpdate,
+    eq,
+  };
+});
 
 vi.mock("@/lib/auth/session", () => ({ requireUser }));
+vi.mock("@/lib/auth/profile", () => ({ getTimeZone }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ from: () => ({ insert, update }) }),
 }));
 
-import { createTask, setTaskCompleted, updateTask } from "./actions";
+import { createTask, setTaskCompleted, setTaskPinned, updateTask } from "./actions";
 
 const ID = "123e4567-e89b-42d3-a456-426614174000";
 const IDLE = { status: "idle" } as const;
@@ -47,6 +56,7 @@ const good = {
 beforeEach(() => {
   vi.clearAllMocks();
   requireUser.mockResolvedValue({ id: "user-1" });
+  getTimeZone.mockResolvedValue("UTC");
   insert.mockResolvedValue({ error: null });
   // update(...).eq(...).select(...) for updateTask, update(...).eq(...) for setTaskCompleted
   eq.mockReturnValue({
@@ -217,6 +227,59 @@ describe("setTaskCompleted", () => {
   it("throws a generic error when the database refuses", async () => {
     eq.mockReturnValue({ then: (r: (v: unknown) => void) => r({ error: { message: "secret" } }) });
     const attempt = setTaskCompleted(form({ id: ID, completed: "true" }));
+    await expect(attempt).rejects.toThrow("Could not update the quest");
+    await expect(attempt).rejects.not.toThrow(/secret/);
+  });
+});
+
+describe("setTaskPinned", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("pins a quest to today in the user's own time zone", async () => {
+    // 23:30 UTC on the 27th is already the 28th in Johannesburg.
+    vi.useFakeTimers({ now: new Date("2026-10-27T23:30:00Z"), toFake: ["Date"] });
+    getTimeZone.mockResolvedValue("Africa/Johannesburg");
+    await setTaskPinned(form({ id: ID, pinned: "true" }));
+    expect(update).toHaveBeenCalledWith({ pinned_for: "2026-10-28" });
+    expect(eq).toHaveBeenCalledWith("id", ID);
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("unpins a quest", async () => {
+    await setTaskPinned(form({ id: ID, pinned: "false" }));
+    expect(update).toHaveBeenCalledWith({ pinned_for: null });
+    expect(getTimeZone).not.toHaveBeenCalled();
+  });
+
+  it("never lets the browser choose the date", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-28T10:00:00Z"), toFake: ["Date"] });
+    await setTaskPinned(form({ id: ID, pinned: "true", pinned_for: "2099-01-01" }));
+    expect(update).toHaveBeenCalledWith({ pinned_for: "2026-10-28" });
+  });
+
+  it("requires sign-in first", async () => {
+    requireUser.mockRejectedValue(new Error("NEXT_REDIRECT:/login"));
+    await expect(setTaskPinned(form({ id: ID, pinned: "true" }))).rejects.toThrow(
+      "NEXT_REDIRECT:/login",
+    );
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a bad id", { id: "nope", pinned: "true" }],
+    ["no id", { pinned: "true" }],
+    ["a bad pinned value", { id: ID, pinned: "yes" }],
+    ["no pinned value", { id: ID }],
+  ])("ignores %s", async (_label, fields) => {
+    await setTaskPinned(form(fields));
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("throws a generic error when the database refuses", async () => {
+    eq.mockReturnValue({ then: (r: (v: unknown) => void) => r({ error: { message: "secret" } }) });
+    const attempt = setTaskPinned(form({ id: ID, pinned: "false" }));
     await expect(attempt).rejects.toThrow("Could not update the quest");
     await expect(attempt).rejects.not.toThrow(/secret/);
   });

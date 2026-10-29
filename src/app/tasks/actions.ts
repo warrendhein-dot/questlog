@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getTimeZone } from "@/lib/auth/profile";
 import { requireUser } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
@@ -10,6 +11,7 @@ import {
   type TaskFormState,
   type TaskFormValues,
 } from "@/lib/tasks/schema";
+import { todayIn } from "@/lib/tasks/views";
 
 // Every action here follows the same order, on purpose:
 //   1. requireUser(): a signed-out request never gets further.
@@ -102,6 +104,25 @@ export async function setTaskCompleted(formData: FormData): Promise<void> {
     .from("tasks")
     .update({ completed_at: completed === "true" ? new Date().toISOString() : null })
     .eq("id", id);
+  if (error) throw new Error("Could not update the quest");
+
+  revalidatePath("/");
+}
+
+/**
+ * Pins a quest to today, or unpins it. "Today" is the user's own day (from the time zone saved in
+ * their profile), worked out here on the server so the browser cannot choose the date.
+ */
+export async function setTaskPinned(formData: FormData): Promise<void> {
+  await requireUser();
+
+  const id = parseTaskId(formData.get("id"));
+  const pinned = formData.get("pinned");
+  if (!id || (pinned !== "true" && pinned !== "false")) return;
+
+  const supabase = await createSupabaseServerClient();
+  const pinnedFor = pinned === "true" ? todayIn(await getTimeZone(supabase), new Date()) : null;
+  const { error } = await supabase.from("tasks").update({ pinned_for: pinnedFor }).eq("id", id);
   if (error) throw new Error("Could not update the quest");
 
   revalidatePath("/");

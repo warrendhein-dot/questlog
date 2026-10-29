@@ -51,7 +51,7 @@ Each slice is one branch, one PR, with tests, and merges only with green CI.
 | 2   | Sign-in                | Google sign-in, session refresh in `proxy.ts`, single-email allow-list, protected routes, sign-out. **Also replaces `'unsafe-inline'` with a nonce-based CSP.** |
 | 3   | Tasks: create and list | `tasks` table with RLS, create, edit and complete (T1, T2, T3), Zod validation of every input, server actions                                                   |
 | 4   | Subtasks               | T4: one level of steps on the edit page, with an offer to complete the quest when all are ticked                                                                |
-| 5   | Today and This week    | T6 views, overdue handling, pinning                                                                                                                             |
+| 5   | Today and This week    | T6: tabs on the home page (opens on Today), overdue handling, pinning to today, the browser's time zone saved to the profile                                    |
 | 6   | Recurring              | T5: pure `nextOccurrence()` function with thorough unit tests, then wiring on completion                                                                        |
 | 7   | Trash                  | T7: soft delete, restore, scheduled purge after 30 days                                                                                                         |
 | 8   | Deploy                 | Vercel project, preview deployment per PR, production environment variables, security review of the live site                                                   |
@@ -82,6 +82,14 @@ Completing sets `completed_at`. A completed task leaves Today and appears under 
 
 1. Overdue (oldest due date first), then
 2. Due today and pinned for today (high priority first, then title).
+
+Built in slice 5 (the rules live in `src/lib/tasks/views.ts`, pure functions with no clock of their own):
+
+- The home page has three tabs, each a link with its own address: **Today** (the default, `/?view=today`), **This week** (`?view=week`) and **All quests** (`?view=all`). An unknown view means Today.
+- **This week** shows overdue quests first, then quests due from today through Sunday, soonest first. Weeks run Monday to Sunday. Quests with no due date appear only under All quests.
+- **Pinning** (`tasks.pinned_for`, a date): "Pin to today" on any open quest sets it to the user's date today; a pin only counts on its own day, so yesterday's pin quietly stops mattering and nothing has to clear it. An overdue quest that is also pinned is listed once, under Overdue.
+- **Time zone**: on each visit the browser's zone is compared with `profiles.time_zone`; if they differ the server (after checking it is a real zone) saves it. "Today" is always worked out on the server from the saved zone. A new account therefore sees UTC dates for the first moment of its first visit.
+- Consequence of opening on Today: a new quest with no due date is not shown under Today. It is under All quests.
 
 ## 5. Security requirements for this phase
 
