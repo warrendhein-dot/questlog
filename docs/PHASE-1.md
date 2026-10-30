@@ -14,7 +14,7 @@ Goal: a signed-in, secure, deployed task list covering PRD requirements **T1-T7*
 | Subtasks        | One level of steps; ticking the last one **offers** to complete the quest | Changed in slice 4 (the owner chose this over auto-complete): the quest is never completed by accident, and may still be completed directly. Steps live on the quest's edit page; the list shows "Steps: 2 of 5 done". |
 | Today view      | Due today + overdue (overdue on top) + tasks pinned to Today              | Needs a `pinned_for` date on tasks.                                                                                                                                                                                    |
 | Week            | Starts Monday. Time zone detected from the browser, editable in settings  | Dates are stored as calendar dates in the user's time zone, and timestamps as UTC.                                                                                                                                     |
-| Deleting        | Soft delete to a Trash, restorable, purged after 30 days                  | Tasks carry `deleted_at`. A scheduled job purges old rows. Also protects the future XP system from delete-and-recreate tricks.                                                                                         |
+| Deleting        | Soft delete to a Trash, restorable, purged after 30 days                  | Tasks carry `deleted_at`. A daily database job (pg_cron) purges old rows. Deleting a repeating quest's next occurrence ends the series. Also protects the future XP system from delete-and-recreate tricks.            |
 
 ## 2. Data model (sketch)
 
@@ -27,7 +27,7 @@ All tables carry `user_id` (owner) and are protected by row-level security: `use
 - `category` (enum of the five), `priority` (`low` | `normal` | `high`)
 - `due_date` (date, nullable), `pinned_for` (date, nullable)
 - `recur_frequency`, `recur_interval`, `recur_weekdays` (the repeat rule, see 4.3), `recurrence_anchor` and `recurred_from` (set by the database only)
-- `completed_at` (timestamptz, nullable), `deleted_at` (timestamptz, nullable)
+- `completed_at` (timestamptz, nullable), `deleted_at` (timestamptz, nullable; written only by `trash_task` / `restore_task`, never by the API)
 - `created_at`, `updated_at`
 - Reserved for later phases (nullable, unused now): `size`, `source`, `source_ref`
 
@@ -53,7 +53,7 @@ Each slice is one branch, one PR, with tests, and merges only with green CI.
 | 4   | Subtasks               | T4: one level of steps on the edit page, with an offer to complete the quest when all are ticked                                                                |
 | 5   | Today and This week    | T6: tabs on the home page (opens on Today), overdue handling, pinning to today, the browser's time zone saved to the profile                                    |
 | 6   | Recurring              | T5: pure `nextOccurrence()` function with thorough unit tests, then wiring on completion (completion moved into database functions)                             |
-| 7   | Trash                  | T7: soft delete, restore, scheduled purge after 30 days                                                                                                         |
+| 7   | Trash                  | T7: soft delete, restore, delete forever, empty Trash, daily database purge after 30 days (see 4.5)                                                             |
 | 8   | Deploy                 | Vercel project, preview deployment per PR, production environment variables, security review of the live site                                                   |
 
 Slices 3-7 each add Playwright journeys. Slice 2 must include a test proving that a second account cannot read or write the first account's rows.
@@ -69,7 +69,7 @@ Completing sets `completed_at`. A completed task leaves Today and appears under 
 - Maximum one level: a step has no steps of its own (there is simply no way to nest, since steps live in their own table).
 - Ticking the last open step does **not** complete the quest. The edit page shows "All steps done. Complete the quest?" with a button; the quest completes only when it is pressed. A quest can also still be completed directly at any time.
 - Steps are added, ticked, un-ticked and removed on the edit page. Removing a step deletes it for good (steps are small; the Trash is for quests). Renaming a step is not built yet.
-- Soft-deleting a parent soft-deletes its subtasks; restoring restores them. (Slice 7.)
+- Steps stay attached to their quest. A quest in the Trash freezes its steps with it (nothing can be added, ticked or removed), and restoring the quest brings them all back unchanged. Deleting the quest for good removes its steps. (Slice 7, see 4.5.)
 
 ### 4.3 Recurring (built in slice 6; the owner confirmed the rules below)
 
@@ -80,7 +80,7 @@ Completing sets `completed_at`. A completed task leaves Today and appears under 
 - Steps of a repeating quest are copied (unticked, in order) to the next occurrence.
 - **One step in the database**: completing a quest, creating the next one and copying its steps happen inside `complete_task()`, so either all of it happens or none, and a double click cannot create two next quests. The same function stamps the completion time with the database's clock (closing threat model A4); the API can no longer write `completed_at`.
 - **Undo** (`reopen_task()`) re-opens the quest and removes the next occurrence it created, but only if that one is untouched (still open, never edited, no step ticked). Anything you have worked on is kept, so Undo never destroys work. Completing again after Undo never adds a second next occurrence.
-- Deleting an occurrence ends the series: only completing creates the next one. (Trash arrives in slice 7, which makes this rule real.)
+- Deleting an occurrence ends the series: only completing creates the next one. Built in slice 7: if the next occurrence is in the Trash, completing the earlier one again (after Undo) creates no replacement, and Undo leaves the trashed one alone. Restoring it carries the series on.
 
 ### 4.4 Today view order
 
@@ -94,6 +94,17 @@ Built in slice 5 (the rules live in `src/lib/tasks/views.ts`, pure functions wit
 - **Pinning** (`tasks.pinned_for`, a date): "Pin to today" on any open quest sets it to the user's date today; a pin only counts on its own day, so yesterday's pin quietly stops mattering and nothing has to clear it. An overdue quest that is also pinned is listed once, under Overdue.
 - **Time zone**: on each visit the browser's zone is compared with `profiles.time_zone`; if they differ the server (after checking it is a real zone) saves it. "Today" is always worked out on the server from the saved zone. A new account therefore sees UTC dates for the first moment of its first visit.
 - Consequence of opening on Today: a new quest with no due date is not shown under Today. It is under All quests.
+
+### 4.5 Trash (built in slice 7; the owner chose the behaviour below)
+
+- **Delete** is on every quest in the lists (open and completed) and on the edit page. It moves the quest to the Trash, so it asks no question: the quest can be restored. Deleting from the edit page returns to the home page. The **Trash** page (`/trash`, linked from the home page) lists deleted quests, most recent first, with the day each was deleted and roughly when it will be removed.
+- **Restore** puts a quest back exactly as it was, with its steps. **Delete forever** removes one quest and its steps; **Empty Trash** removes everything in the Trash. Both ask first ("Delete ... for good? This cannot be undone.") because they cannot be undone, with focus on Cancel.
+- **Purge**: a database function, `purge_trash()`, removes quests trashed more than 30 days ago. The database's scheduler (pg_cron) runs it every day at 03:17 UTC, so the app does not need to be opened and nobody signed in can run it. A quest can therefore stay up to a day past its 30th day, which is why the page says "around".
+- **A quest in the Trash is frozen** by the database, not just hidden by the app: it cannot be edited, pinned, completed or re-opened, its steps cannot change, and its edit page is a 404. The only ways out are Restore, Delete forever and the purge. Its delete time comes from the database's clock and is never rewritten by a second delete, so the 30 days do not restart.
+- **Delete forever** is a real database DELETE, but the rules allow it only for the owner's rows that are already in the Trash. A live quest can never be removed that way, even by a hand-made request.
+- **Time zones**: the dates on the Trash page are the user's own days (from the saved time zone), worked out by `src/lib/tasks/trash.ts` with no clock of its own.
+- Step errors: adding a step to a quest that is gone, someone else's, or in the Trash now fails with a row-level-security error (the same answer for all three, so nothing leaks), which the app shows as "That quest could not be found."
+- **For Phase 2**: because quests can now vanish for good, XP must be recorded in its own ledger, never computed from the `tasks` rows (see the threat model).
 
 ## 5. Security requirements for this phase
 

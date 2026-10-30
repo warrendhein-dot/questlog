@@ -28,8 +28,12 @@ function failed(value: string, error: { message?: string; code?: string }): Subt
   if (error.message?.includes("subtask_limit")) {
     return { status: "error", message: "A quest can have at most 50 steps.", value };
   }
-  // 23503 = foreign key violation: the quest does not exist, or is not the signed-in user's.
-  if (error.code === "23503") return { status: "error", message: NOT_FOUND, value };
+  // The quest does not exist, is not the signed-in user's, or is in the Trash. The database says so
+  // with 42501 (row-level security refused the new step); 23503 (foreign key violation) is the
+  // backstop behind it. Either way the answer is the same one, so nothing reveals which it was.
+  if (error.code === "42501" || error.code === "23503") {
+    return { status: "error", message: NOT_FOUND, value };
+  }
   return { status: "error", message: "Could not add the step. Please try again.", value };
 }
 

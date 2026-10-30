@@ -19,6 +19,7 @@ vi.mock("@/app/tasks/actions", () => ({
   createTask: vi.fn(),
   setTaskCompleted: vi.fn(),
   setTaskPinned: vi.fn(),
+  trashTask: vi.fn(),
 }));
 
 import Home from "./page";
@@ -82,6 +83,11 @@ describe("Home page", () => {
     await show();
     expect(screen.getByText("Signed in as hero@example.com")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("links to the Trash", async () => {
+    await show();
+    expect(screen.getByRole("link", { name: "Trash" })).toHaveAttribute("href", "/trash");
   });
 
   it("has a form for new quests and a Completed section whichever view is chosen", async () => {

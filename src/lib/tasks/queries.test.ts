@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
-import { getCompletionContext, getTask, listOpenTasks, listRecentCompletedTasks } from "./queries";
+import {
+  getCompletionContext,
+  getTask,
+  listOpenTasks,
+  listRecentCompletedTasks,
+  listTrashedTasks,
+} from "./queries";
 
 type Call = [string, unknown[]];
 
@@ -145,6 +151,12 @@ describe("listOpenTasks", () => {
     expect(calls).toContainEqual(["order", ["priority", { ascending: false }]]);
   });
 
+  it("leaves out quests in the Trash", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listOpenTasks(client);
+    expect(calls).toContainEqual(["is", ["deleted_at", null]]);
+  });
+
   it("copes with no rows", async () => {
     const { client } = fakeSupabase({ data: null, error: null });
     expect(await listOpenTasks(client)).toEqual([]);
@@ -190,6 +202,12 @@ describe("listRecentCompletedTasks", () => {
     expect(calls).toContainEqual(["limit", [20]]);
   });
 
+  it("leaves out quests in the Trash", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listRecentCompletedTasks(client);
+    expect(calls).toContainEqual(["is", ["deleted_at", null]]);
+  });
+
   it("copes with no rows and throws a generic error on failure", async () => {
     expect(
       await listRecentCompletedTasks(fakeSupabase({ data: null, error: null }).client),
@@ -200,11 +218,65 @@ describe("listRecentCompletedTasks", () => {
   });
 });
 
+describe("listTrashedTasks", () => {
+  const trashedRow = { ...row, deleted_at: "2026-10-30T03:57:46.123+00:00" };
+
+  it("returns trashed quests with when they were deleted", async () => {
+    const { client } = fakeSupabase({ data: [trashedRow], error: null });
+    expect(await listTrashedTasks(client)).toEqual([
+      { ...task, deletedAt: "2026-10-30T03:57:46.123+00:00" },
+    ]);
+  });
+
+  it("asks only for quests in the Trash, most recently deleted first", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listTrashedTasks(client);
+    expect(calls).toContainEqual(["from", ["tasks"]]);
+    expect(calls).toContainEqual(["not", ["deleted_at", "is", null]]);
+    expect(calls).toContainEqual(["order", ["deleted_at", { ascending: false }]]);
+    const select = calls.find(([name]) => name === "select")!;
+    expect(String(select[1][0])).toContain("deleted_at");
+  });
+
+  it("keeps the repeat rule, so a restored quest is described the same way", async () => {
+    const { client } = fakeSupabase({
+      data: [{ ...trashedRow, recur_frequency: "daily", recur_interval: 3 }],
+      error: null,
+    });
+    expect((await listTrashedTasks(client))[0]!.recurrence).toEqual({
+      frequency: "daily",
+      interval: 3,
+      weekdays: [],
+    });
+  });
+
+  it("copes with no rows", async () => {
+    expect(await listTrashedTasks(fakeSupabase({ data: null, error: null }).client)).toEqual([]);
+  });
+
+  it("refuses a row that has no delete time, and throws a generic error on failure", async () => {
+    await expect(
+      listTrashedTasks(fakeSupabase({ data: [row], error: null }).client),
+    ).rejects.toThrow();
+    const attempt = listTrashedTasks(
+      fakeSupabase({ data: null, error: { message: "secret detail" } }).client,
+    );
+    await expect(attempt).rejects.toThrow("Could not load the Trash");
+    await expect(attempt).rejects.not.toThrow(/secret detail/);
+  });
+});
+
 describe("getTask", () => {
   it("returns the task", async () => {
     const { client, calls } = fakeSupabase({ data: row, error: null });
     expect(await getTask(client, row.id)).toEqual(task);
     expect(calls).toContainEqual(["eq", ["id", row.id]]);
+  });
+
+  it("does not find a quest that is in the Trash", async () => {
+    const { client, calls } = fakeSupabase({ data: null, error: null });
+    await getTask(client, row.id);
+    expect(calls).toContainEqual(["is", ["deleted_at", null]]);
   });
 
   it("returns null when there is no such task, or it belongs to someone else", async () => {
@@ -240,6 +312,7 @@ describe("getCompletionContext", () => {
     });
     expect(calls).toContainEqual(["from", ["tasks"]]);
     expect(calls).toContainEqual(["eq", ["id", row.id]]);
+    expect(calls).toContainEqual(["is", ["deleted_at", null]]);
   });
 
   it("returns no rule for a quest that does not repeat", async () => {

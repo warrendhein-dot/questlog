@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { updateTask } from "@/app/tasks/actions";
+import { trashTask, updateTask } from "@/app/tasks/actions";
+import { BUTTON } from "@/app/tasks/button-style";
 import { StepsPanel } from "@/app/tasks/steps-panel";
 import { TaskForm } from "@/app/tasks/task-form";
 import { requireUser } from "@/lib/auth/session";
@@ -36,6 +37,16 @@ export default async function EditTaskPage({ params }: { params: Promise<{ id: s
           initial={toFormValues(task)}
           submitLabel="Save changes"
         />
+        {/* Its own form: a form cannot sit inside the edit form. `from=edit` sends the user home,
+            because this page cannot show a quest that is in the Trash. */}
+        <form action={trashTask} className="mt-4">
+          <input type="hidden" name="id" value={task.id} />
+          <input type="hidden" name="from" value="edit" />
+          <button type="submit" className={BUTTON}>
+            Delete quest
+          </button>
+          <span className="ml-3 text-sm">It goes to the Trash, where you can restore it.</span>
+        </form>
         <p className="mt-4">
           <Link
             href="/"
