@@ -19,8 +19,8 @@ export type Env = z.infer<typeof envSchema>;
  */
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
-/** https always; plain http only for this computer (the throwaway Supabase used by CI tests). */
-function isAllowedSupabaseUrl(value: string): boolean {
+/** https always; plain http only for this computer (the throwaway Supabase and app used by CI tests). */
+function isHttpsOrLoopbackUrl(value: string): boolean {
   // A validation rule must never throw: unparseable input is simply "not allowed".
   let url: URL;
   try {
@@ -39,7 +39,7 @@ const supabaseEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: z
     .url()
     .refine(
-      isAllowedSupabaseUrl,
+      isHttpsOrLoopbackUrl,
       "must be an https URL (plain http is allowed only for localhost)",
     ),
   // The publishable key is safe in the browser because row-level security protects the data.
@@ -67,7 +67,23 @@ function parseWith<T extends z.ZodType>(
 }
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
-  return parseWith(envSchema, source);
+  const env = parseWith(envSchema, source);
+  if (env.NODE_ENV === "production") {
+    // The development default (http://localhost:3000) must never quietly apply on the live site:
+    // every sign-in redirect is built from this address, so a forgotten setting would send people
+    // to localhost. Fail loudly instead, naming the variable and never its value.
+    if (source.NEXT_PUBLIC_APP_URL === undefined) {
+      throw new Error(
+        "Invalid environment configuration: NEXT_PUBLIC_APP_URL: is required in production",
+      );
+    }
+    if (!isHttpsOrLoopbackUrl(env.NEXT_PUBLIC_APP_URL)) {
+      throw new Error(
+        "Invalid environment configuration: NEXT_PUBLIC_APP_URL: must be https in production (plain http is allowed only for localhost)",
+      );
+    }
+  }
+  return env;
 }
 
 export function parseSupabaseEnv(source: Record<string, string | undefined>): SupabaseEnv {

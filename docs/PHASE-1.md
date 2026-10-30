@@ -54,7 +54,7 @@ Each slice is one branch, one PR, with tests, and merges only with green CI.
 | 5   | Today and This week    | T6: tabs on the home page (opens on Today), overdue handling, pinning to today, the browser's time zone saved to the profile                                    |
 | 6   | Recurring              | T5: pure `nextOccurrence()` function with thorough unit tests, then wiring on completion (completion moved into database functions)                             |
 | 7   | Trash                  | T7: soft delete, restore, delete forever, empty Trash, daily database purge after 30 days (see 4.5)                                                             |
-| 8   | Deploy                 | Vercel project, preview deployment per PR, production environment variables, security review of the live site                                                   |
+| 8   | Deploy                 | Vercel project (production only, from `main`), production environment variables, firewall rate limit, automated security check of the live site (see 4.6)       |
 
 Slices 3-7 each add Playwright journeys. Slice 2 must include a test proving that a second account cannot read or write the first account's rows.
 
@@ -106,6 +106,16 @@ Built in slice 5 (the rules live in `src/lib/tasks/views.ts`, pure functions wit
 - Step errors: adding a step to a quest that is gone, someone else's, or in the Trash now fails with a row-level-security error (the same answer for all three, so nothing leaks), which the app shows as "That quest could not be found."
 - **For Phase 2**: because quests can now vanish for good, XP must be recorded in its own ledger, never computed from the `tasks` rows (see the threat model).
 
+### 4.6 Deployment (slice 8; the owner chose the options below)
+
+- **Where**: Vercel's free Hobby plan, at the free `https://<project-name>.vercel.app` address (a custom domain can be added later without rebuilding). Functions run in Stockholm (`arn1`), the same region as the Supabase project, so the several database calls behind each page stay short. Settings that live in the repository are in `vercel.json`; the owner's own steps are in `docs/DEPLOY.md`.
+- **Production only**: only the merged `main` branch is deployed. Pull requests are built and tested by CI against a throwaway database, but get no Vercel copy, so unmerged code can never run against real data. A bad build never replaces the working site, and Vercel's Instant Rollback undoes a bad release in seconds.
+- **Configuration fails loudly**: in production `NEXT_PUBLIC_APP_URL` must be set and must be https (plain http only for localhost, which the browser tests use). Before, a forgotten setting silently became `http://localhost:3000`.
+- **Rate limit**: a Vercel firewall rule allows 20 requests a minute per visitor to `/auth/callback` (the owner publishes it in the dashboard).
+- **Live check**: `npm run check:live -- <address>` makes about twenty ordinary requests as a stranger and judges the answers with the rules in `src/lib/security/live-check.ts` (security headers, nonce CSP, redirects to login, failed sign-in returns to the same site, nothing private served, no leaked keys). The same script runs in CI against the local production build, so it cannot rot.
+- **Database changes stay separate**: `supabase db push` changes the live database immediately. Each migration pull request says whether to apply it before or after merging, so old and new code both work in the gap.
+- **Phase 1 ends here.** Next: the UI/UX pass the owner set aside, then Phase 2 (XP), which needs a separate development database first (accepted risk A5).
+
 ## 5. Security requirements for this phase
 
 - Google OAuth scopes: **`openid`, `email`, `profile` only**. No Gmail or Calendar scopes yet.
@@ -123,7 +133,7 @@ These need your own accounts and credentials. I will give step-by-step instructi
 
 1. Create a free **Supabase** project (slice 1).
 2. Create a **Google Cloud** OAuth client and give Supabase its client ID and secret (slice 2).
-3. Create a free **Vercel** account and connect the GitHub repo (slice 8).
+3. Create a free **Vercel** account and connect the GitHub repo (slice 8). Step by step in `docs/DEPLOY.md`.
 
 ## 7. Open questions
 
