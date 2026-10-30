@@ -15,6 +15,7 @@ const task: TaskWithSteps = {
   dueDate: "2026-11-01",
   completedAt: null,
   pinnedFor: null,
+  recurrence: null,
   stepsDone: 0,
   stepsTotal: 0,
 };
@@ -39,6 +40,22 @@ describe("TaskList", () => {
   it("leaves out the due date when there is none", () => {
     render(<TaskList tasks={[{ ...task, dueDate: null }]} mode="open" emptyMessage="" />);
     expect(screen.getByText("Home · High priority")).toBeInTheDocument();
+  });
+
+  it("says in words how a repeating quest repeats", () => {
+    render(
+      <TaskList
+        tasks={[{ ...task, recurrence: { frequency: "weekly", interval: 2, weekdays: [1, 4] } }]}
+        mode="open"
+        emptyMessage=""
+      />,
+    );
+    expect(screen.getByText("Repeats every 2 weeks on Mon, Thu")).toBeInTheDocument();
+  });
+
+  it("says nothing about repeating when a quest does not repeat", () => {
+    render(<TaskList tasks={[task]} mode="open" emptyMessage="" />);
+    expect(screen.queryByText(/Repeats/)).not.toBeInTheDocument();
   });
 
   it("says how many steps are done when a quest has steps", () => {

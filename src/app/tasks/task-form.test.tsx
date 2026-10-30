@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { TaskFormState } from "@/lib/tasks/schema";
+import { EMPTY_TASK_FORM, type TaskFormState } from "@/lib/tasks/schema";
 import { TaskForm } from "./task-form";
 
 type Action = (previous: TaskFormState, formData: FormData) => Promise<TaskFormState>;
@@ -46,6 +46,9 @@ describe("TaskForm", () => {
           category: "home",
           priority: "high",
           dueDate: "2026-11-01",
+          repeat: "none",
+          interval: "1",
+          weekdays: [],
         }}
       />,
     );
@@ -74,6 +77,8 @@ describe("TaskForm", () => {
       category: "learning",
       priority: "high",
       dueDate: "2026-12-24",
+      repeat: "none",
+      interval: "1",
     });
   });
 
@@ -88,7 +93,16 @@ describe("TaskForm", () => {
       {
         status: "error",
         errors: { title: "Give the quest a name." },
-        values: { title: "", notes: "Keep me", category: "home", priority: "low", dueDate: "" },
+        values: {
+          title: "",
+          notes: "Keep me",
+          category: "home",
+          priority: "low",
+          dueDate: "",
+          repeat: "none",
+          interval: "1",
+          weekdays: [],
+        },
       },
       50,
     );
@@ -116,6 +130,9 @@ describe("TaskForm", () => {
           category: "home",
           priority: "low",
           dueDate: "2026-12-24",
+          repeat: "none",
+          interval: "1",
+          weekdays: [],
         },
       },
       50,
@@ -142,9 +159,135 @@ describe("TaskForm", () => {
   });
 
   it("disables the button while saving, so a quest is not submitted twice", async () => {
-    const action = vi.fn<Action>(() => new Promise(() => {}));
+    let finish!: (state: TaskFormState) => void;
+    const action = vi.fn<Action>(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
     render(<TaskForm action={action} submitLabel="Add quest" />);
     await userEvent.click(screen.getByRole("button", { name: "Add quest" }));
     expect(await screen.findByRole("button", { name: "Saving…" })).toBeDisabled();
+
+    // Let the save finish. React holds back every later form result until all pending ones are done,
+    // so a save that never finishes would silently break whichever test happens to run next.
+    finish({ status: "idle" });
+    expect(await screen.findByRole("button", { name: "Add quest" })).toBeEnabled();
+  });
+});
+
+describe("TaskForm: repeating", () => {
+  it("offers a Repeat group with a choice, a number and the seven weekdays, all labelled", () => {
+    render(<TaskForm action={fakeAction({ status: "idle" })} submitLabel="Add quest" />);
+    const group = screen.getByRole("group", { name: "Repeat" });
+    expect(within(group).getByLabelText("Repeats")).toHaveValue("none");
+    expect(
+      Array.from((within(group).getByLabelText("Repeats") as HTMLSelectElement).options).map(
+        (o) => o.text,
+      ),
+    ).toEqual(["Never", "Daily", "Weekly", "Monthly"]);
+    expect(within(group).getByLabelText("Every (number of days, weeks or months)")).toHaveValue(1);
+    const days = within(
+      screen.getByRole("group", { name: "On these days (weekly only, optional)" }),
+    ).getAllByRole("checkbox");
+    expect(days.map((d) => (d as HTMLInputElement).labels![0]!.textContent)).toEqual([
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday",
+    ]);
+    expect(days.every((d) => !(d as HTMLInputElement).checked)).toBe(true);
+  });
+
+  it("starts from the saved rule when editing", () => {
+    render(
+      <TaskForm
+        action={fakeAction({ status: "idle" })}
+        submitLabel="Save changes"
+        initial={{
+          ...EMPTY_TASK_FORM,
+          title: "Water the plants",
+          dueDate: "2026-12-24",
+          repeat: "weekly",
+          interval: "2",
+          weekdays: ["1", "4"],
+        }}
+      />,
+    );
+    expect(screen.getByLabelText("Repeats")).toHaveValue("weekly");
+    expect(screen.getByLabelText("Every (number of days, weeks or months)")).toHaveValue(2);
+    expect(screen.getByLabelText("Monday")).toBeChecked();
+    expect(screen.getByLabelText("Thursday")).toBeChecked();
+    expect(screen.getByLabelText("Tuesday")).not.toBeChecked();
+  });
+
+  it("submits the chosen rule, with each ticked weekday as its own value", async () => {
+    const action = fakeAction({ status: "saved" });
+    render(<TaskForm action={action} submitLabel="Add quest" />);
+    await userEvent.type(screen.getByLabelText("Quest name"), "Water the plants");
+    await userEvent.type(screen.getByLabelText("Due date (optional)"), "2026-12-24");
+    await userEvent.selectOptions(screen.getByLabelText("Repeats"), "weekly");
+    await userEvent.clear(screen.getByLabelText("Every (number of days, weeks or months)"));
+    await userEvent.type(screen.getByLabelText("Every (number of days, weeks or months)"), "2");
+    await userEvent.click(screen.getByLabelText("Thursday"));
+    await userEvent.click(screen.getByLabelText("Monday"));
+    await userEvent.click(screen.getByRole("button", { name: "Add quest" }));
+
+    const sent = action.mock.calls[0]![1];
+    expect(sent.get("repeat")).toBe("weekly");
+    expect(sent.get("interval")).toBe("2");
+    expect(sent.getAll("weekdays")).toEqual(["1", "4"]);
+  });
+
+  it("explains a rejected repeat field and ties each message to its field", async () => {
+    const action = fakeAction(
+      {
+        status: "error",
+        errors: {
+          interval: "Use a whole number from 1 to 365.",
+          weekdays: "Pick days of the week from the list.",
+        },
+        values: {
+          ...EMPTY_TASK_FORM,
+          title: "Water",
+          dueDate: "2026-12-24",
+          repeat: "weekly",
+          interval: "0",
+          weekdays: ["2"],
+        },
+      },
+      50,
+    );
+    render(<TaskForm action={action} submitLabel="Add quest" />);
+    await userEvent.click(screen.getByRole("button", { name: "Add quest" }));
+
+    await screen.findByText("Use a whole number from 1 to 365.");
+    const interval = screen.getByLabelText("Every (number of days, weeks or months)");
+    expect(interval).toHaveAttribute("aria-invalid", "true");
+    expect(interval).toHaveAccessibleDescription("Use a whole number from 1 to 365.");
+    expect(screen.getByText("Pick days of the week from the list.")).toBeInTheDocument();
+    // What was typed comes back too.
+    expect(screen.getByLabelText("Repeats")).toHaveValue("weekly");
+    expect(interval).toHaveValue(0);
+    expect(screen.getByLabelText("Tuesday")).toBeChecked();
+  });
+
+  it("explains a missing due date on the date field", async () => {
+    const action = fakeAction(
+      {
+        status: "error",
+        errors: { dueDate: "Pick a due date: a repeating quest needs a date to start from." },
+        values: { ...EMPTY_TASK_FORM, title: "Water", repeat: "daily" },
+      },
+      50,
+    );
+    render(<TaskForm action={action} submitLabel="Add quest" />);
+    await userEvent.click(screen.getByRole("button", { name: "Add quest" }));
+    await screen.findByText(/needs a date to start from/);
+    expect(screen.getByLabelText("Due date (optional)")).toHaveAttribute("aria-invalid", "true");
   });
 });

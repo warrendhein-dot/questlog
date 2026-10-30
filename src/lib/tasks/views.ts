@@ -39,7 +39,8 @@ export function todayIn(timeZone: string, now: Date): string {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function addDays(date: string, days: number): string {
+/** The calendar date `days` after (or before, if negative) `date`. Both are plain YYYY-MM-DD text. */
+export function addDays(date: string, days: number): string {
   const [year, month, day] = date.split("-").map(Number) as [number, number, number];
   return new Date(Date.UTC(year, month - 1, day) + days * DAY_MS).toISOString().slice(0, 10);
 }

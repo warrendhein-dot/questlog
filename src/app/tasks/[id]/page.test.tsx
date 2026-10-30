@@ -36,6 +36,7 @@ const task: Task = {
   dueDate: "2026-11-01",
   completedAt: null,
   pinnedFor: null,
+  recurrence: null,
 };
 
 const renderPage = async (id: string) =>

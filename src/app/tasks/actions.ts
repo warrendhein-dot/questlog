@@ -5,7 +5,10 @@ import { redirect } from "next/navigation";
 import { getTimeZone } from "@/lib/auth/profile";
 import { requireUser } from "@/lib/auth/session";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCompletionContext } from "@/lib/tasks/queries";
+import { nextOccurrence, type Recurrence } from "@/lib/tasks/recurrence";
 import {
+  inputToFormValues,
   parseTaskForm,
   parseTaskId,
   type TaskFormState,
@@ -20,6 +23,15 @@ import { todayIn } from "@/lib/tasks/views";
 //   4. Report only generic messages back: database error text can name tables and rules.
 
 const NOT_FOUND = "That quest could not be found.";
+
+/** The three database columns for a repeat rule; all null for a quest that does not repeat. */
+function recurrenceColumns(rule: Recurrence | null) {
+  return {
+    recur_frequency: rule?.frequency ?? null,
+    recur_interval: rule?.interval ?? null,
+    recur_weekdays: rule && rule.weekdays.length > 0 ? rule.weekdays : null,
+  };
+}
 
 function failed(values: TaskFormValues, error: { message?: string }): TaskFormState {
   const message = error.message?.includes("task_rate_limit")
@@ -36,25 +48,19 @@ export async function createTask(
 
   const parsed = parseTaskForm(formData);
   if (!parsed.success) return { status: "error", errors: parsed.errors, values: parsed.values };
-  const { title, notes, category, priority, dueDate } = parsed.data;
+  const { title, notes, category, priority, dueDate, recurrence } = parsed.data;
 
   const supabase = await createSupabaseServerClient();
   // The owner is not sent: the database fills it in from the session.
-  const { error } = await supabase
-    .from("tasks")
-    .insert({ title, notes, category, priority, due_date: dueDate });
-  if (error) {
-    return failed(
-      {
-        title,
-        notes,
-        category,
-        priority,
-        dueDate: dueDate ?? "",
-      },
-      error,
-    );
-  }
+  const { error } = await supabase.from("tasks").insert({
+    title,
+    notes,
+    category,
+    priority,
+    due_date: dueDate,
+    ...recurrenceColumns(recurrence),
+  });
+  if (error) return failed(inputToFormValues(parsed.data), error);
 
   revalidatePath("/");
   return { status: "saved" };
@@ -73,17 +79,22 @@ export async function updateTask(
 
   const parsed = parseTaskForm(formData);
   if (!parsed.success) return { status: "error", errors: parsed.errors, values: parsed.values };
-  const { title, notes, category, priority, dueDate } = parsed.data;
+  const { title, notes, category, priority, dueDate, recurrence } = parsed.data;
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("tasks")
-    .update({ title, notes, category, priority, due_date: dueDate })
+    .update({
+      title,
+      notes,
+      category,
+      priority,
+      due_date: dueDate,
+      ...recurrenceColumns(recurrence),
+    })
     .eq("id", taskId)
     .select("id");
-  if (error) {
-    return failed({ title, notes, category, priority, dueDate: dueDate ?? "" }, error);
-  }
+  if (error) return failed(inputToFormValues(parsed.data), error);
   // Updating someone else's task (or one that no longer exists) changes zero rows without an error.
   if (!data || data.length === 0) return { status: "error", message: NOT_FOUND };
 
@@ -91,7 +102,14 @@ export async function updateTask(
   redirect("/");
 }
 
-/** Completes or re-opens a quest. Used by the plain buttons in the quest list. */
+/**
+ * Completes or re-opens a quest. Used by the plain buttons in the quest list.
+ *
+ * Both go through database functions (`complete_task`, `reopen_task`), which stamp the time with the
+ * database's clock and do everything in one step. Completing a repeating quest also creates the
+ * next one; the date for it is worked out here, because the date rules are written once, in
+ * TypeScript, and tested there.
+ */
 export async function setTaskCompleted(formData: FormData): Promise<void> {
   await requireUser();
 
@@ -100,10 +118,25 @@ export async function setTaskCompleted(formData: FormData): Promise<void> {
   if (!id || (completed !== "true" && completed !== "false")) return;
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase
-    .from("tasks")
-    .update({ completed_at: completed === "true" ? new Date().toISOString() : null })
-    .eq("id", id);
+
+  if (completed === "false") {
+    const { error } = await supabase.rpc("reopen_task", { p_task_id: id });
+    if (error) throw new Error("Could not update the quest");
+    revalidatePath("/");
+    return;
+  }
+
+  let nextDue: string | null = null;
+  const context = await getCompletionContext(supabase, id);
+  if (context?.recurrence && context.dueDate && context.anchor && context.completedAt === null) {
+    // Whichever is later, the due date or today: finishing late must not produce a copy that is
+    // already in the past, and finishing early must not pull the next one forward.
+    const today = todayIn(await getTimeZone(supabase), new Date());
+    const after = context.dueDate > today ? context.dueDate : today;
+    nextDue = nextOccurrence(context.recurrence, context.anchor, after);
+  }
+
+  const { error } = await supabase.rpc("complete_task", { p_task_id: id, p_next_due: nextDue });
   if (error) throw new Error("Could not update the quest");
 
   revalidatePath("/");

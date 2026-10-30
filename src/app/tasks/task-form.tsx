@@ -2,6 +2,12 @@
 
 import { useActionState, useId, type ReactNode } from "react";
 import {
+  MAX_INTERVAL,
+  RECURRENCE_FREQUENCIES,
+  REPEAT_LABELS,
+  WEEKDAY_NAMES,
+} from "@/lib/tasks/recurrence";
+import {
   CATEGORY_LABELS,
   EMPTY_TASK_FORM,
   PRIORITY_LABELS,
@@ -161,6 +167,75 @@ export function TaskForm({ action, initial = EMPTY_TASK_FORM, submitLabel }: Pro
             />
           </Field>
         </div>
+
+        <fieldset className="space-y-4 rounded border-2 border-panel-border p-3">
+          <legend className="px-1 font-bold">Repeat</legend>
+          <p className="text-sm">
+            A repeating quest needs a due date. When you complete it, the next one is created
+            automatically.
+          </p>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field id={`${prefix}-repeat`} label="Repeats" error={errors.repeat}>
+              <select
+                id={`${prefix}-repeat`}
+                name="repeat"
+                defaultValue={values.repeat}
+                aria-invalid={errors.repeat ? true : undefined}
+                aria-describedby={describedBy("repeat", Boolean(errors.repeat))}
+                className={CONTROL}
+              >
+                {(["none", ...RECURRENCE_FREQUENCIES] as const).map((choice) => (
+                  <option key={choice} value={choice}>
+                    {REPEAT_LABELS[choice]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field
+              id={`${prefix}-interval`}
+              label="Every (number of days, weeks or months)"
+              error={errors.interval}
+            >
+              <input
+                id={`${prefix}-interval`}
+                name="interval"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={MAX_INTERVAL}
+                defaultValue={values.interval}
+                aria-invalid={errors.interval ? true : undefined}
+                aria-describedby={describedBy("interval", Boolean(errors.interval))}
+                className={CONTROL}
+              />
+            </Field>
+          </div>
+
+          <fieldset aria-describedby={describedBy("weekdays", Boolean(errors.weekdays))}>
+            <legend className="mb-1 font-bold">On these days (weekly only, optional)</legend>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {WEEKDAY_NAMES.map((name, index) => (
+                <label key={name} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="weekdays"
+                    value={index + 1}
+                    defaultChecked={values.weekdays.includes(String(index + 1))}
+                    className="size-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-panel-border"
+                  />
+                  {name}
+                </label>
+              ))}
+            </div>
+            {errors.weekdays && (
+              <p id={`${prefix}-weekdays-error`} className="mt-1 text-sm">
+                {errors.weekdays}
+              </p>
+            )}
+          </fieldset>
+        </fieldset>
       </div>
 
       <button

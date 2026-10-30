@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
-import { getTask, listOpenTasks, listRecentCompletedTasks } from "./queries";
+import { getCompletionContext, getTask, listOpenTasks, listRecentCompletedTasks } from "./queries";
 
 type Call = [string, unknown[]];
 
@@ -37,6 +37,9 @@ const row = {
   due_date: "2026-11-01",
   completed_at: null,
   pinned_for: null,
+  recur_frequency: null,
+  recur_interval: null,
+  recur_weekdays: null,
 };
 
 const task = {
@@ -48,6 +51,7 @@ const task = {
   dueDate: "2026-11-01",
   completedAt: null,
   pinnedFor: null,
+  recurrence: null,
 };
 
 // The lists also embed each quest's steps.
@@ -76,6 +80,46 @@ describe("listOpenTasks", () => {
       error: null,
     });
     expect((await listOpenTasks(client))[0]!.pinnedFor).toBe("2026-10-28");
+  });
+
+  it("returns how a quest repeats, with the weekdays in order", async () => {
+    const { client } = fakeSupabase({
+      data: [{ ...listRow, recur_frequency: "weekly", recur_interval: 2, recur_weekdays: [4, 1] }],
+      error: null,
+    });
+    expect((await listOpenTasks(client))[0]!.recurrence).toEqual({
+      frequency: "weekly",
+      interval: 2,
+      weekdays: [1, 4],
+    });
+  });
+
+  it("returns no weekdays for a rule without any, and no rule for a quest that does not repeat", async () => {
+    const { client } = fakeSupabase({
+      data: [
+        { ...listRow, recur_frequency: "monthly", recur_interval: 1, recur_weekdays: null },
+        listRow,
+      ],
+      error: null,
+    });
+    const [monthly, plain] = await listOpenTasks(client);
+    expect(monthly!.recurrence).toEqual({ frequency: "monthly", interval: 1, weekdays: [] });
+    expect(plain!.recurrence).toBeNull();
+  });
+
+  it("refuses a repeat rule the app does not know", async () => {
+    const { client } = fakeSupabase({
+      data: [{ ...listRow, recur_frequency: "hourly", recur_interval: 1 }],
+      error: null,
+    });
+    await expect(listOpenTasks(client)).rejects.toThrow();
+  });
+
+  it("asks for the repeat columns along with the other columns", async () => {
+    const { client, calls } = fakeSupabase({ data: [], error: null });
+    await listOpenTasks(client);
+    const select = calls.find(([name]) => name === "select")!;
+    expect(String(select[1][0])).toContain("recur_frequency, recur_interval, recur_weekdays");
   });
 
   it("asks for the pinned day along with the other columns", async () => {
@@ -171,6 +215,58 @@ describe("getTask", () => {
   it("throws a generic error on failure", async () => {
     const { client } = fakeSupabase({ data: null, error: { message: "secret detail" } });
     const attempt = getTask(client, row.id);
+    await expect(attempt).rejects.toThrow("Could not load the quest");
+    await expect(attempt).rejects.not.toThrow(/secret detail/);
+  });
+});
+
+describe("getCompletionContext", () => {
+  const contextRow = {
+    due_date: "2026-10-28",
+    completed_at: null,
+    recurrence_anchor: "2026-10-14",
+    recur_frequency: "weekly",
+    recur_interval: 2,
+    recur_weekdays: [1, 4],
+  };
+
+  it("returns the dates and repeat rule needed to work out the next occurrence", async () => {
+    const { client, calls } = fakeSupabase({ data: contextRow, error: null });
+    expect(await getCompletionContext(client, row.id)).toEqual({
+      dueDate: "2026-10-28",
+      completedAt: null,
+      anchor: "2026-10-14",
+      recurrence: { frequency: "weekly", interval: 2, weekdays: [1, 4] },
+    });
+    expect(calls).toContainEqual(["from", ["tasks"]]);
+    expect(calls).toContainEqual(["eq", ["id", row.id]]);
+  });
+
+  it("returns no rule for a quest that does not repeat", async () => {
+    const { client } = fakeSupabase({
+      data: {
+        ...contextRow,
+        recurrence_anchor: null,
+        recur_frequency: null,
+        recur_interval: null,
+        recur_weekdays: null,
+      },
+      error: null,
+    });
+    expect(await getCompletionContext(client, row.id)).toMatchObject({
+      anchor: null,
+      recurrence: null,
+    });
+  });
+
+  it("returns null when there is no such quest, or it belongs to someone else", async () => {
+    const { client } = fakeSupabase({ data: null, error: null });
+    expect(await getCompletionContext(client, row.id)).toBeNull();
+  });
+
+  it("throws a generic error on failure", async () => {
+    const { client } = fakeSupabase({ data: null, error: { message: "secret detail" } });
+    const attempt = getCompletionContext(client, row.id);
     await expect(attempt).rejects.toThrow("Could not load the quest");
     await expect(attempt).rejects.not.toThrow(/secret detail/);
   });

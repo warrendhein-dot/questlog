@@ -9,6 +9,8 @@ const {
   update,
   selectAfterUpdate,
   eq,
+  rpc,
+  getCompletionContext,
 } = vi.hoisted(() => {
   const selectAfterUpdate = vi.fn();
   const eq = vi.fn();
@@ -23,6 +25,8 @@ const {
     update: vi.fn(),
     selectAfterUpdate,
     eq,
+    rpc: vi.fn(),
+    getCompletionContext: vi.fn(),
   };
 });
 
@@ -31,17 +35,21 @@ vi.mock("@/lib/auth/profile", () => ({ getTimeZone }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => ({ from: () => ({ insert, update }) }),
+  createSupabaseServerClient: async () => ({ from: () => ({ insert, update }), rpc }),
 }));
+vi.mock("@/lib/tasks/queries", () => ({ getCompletionContext }));
 
 import { createTask, setTaskCompleted, setTaskPinned, updateTask } from "./actions";
 
 const ID = "123e4567-e89b-42d3-a456-426614174000";
 const IDLE = { status: "idle" } as const;
 
-function form(fields: Record<string, string>) {
+function form(fields: Record<string, string | string[]>) {
   const data = new FormData();
-  for (const [key, value] of Object.entries(fields)) data.set(key, value);
+  for (const [key, value] of Object.entries(fields)) {
+    if (Array.isArray(value)) for (const item of value) data.append(key, item);
+    else data.set(key, value);
+  }
   return data;
 }
 
@@ -65,6 +73,13 @@ beforeEach(() => {
   });
   update.mockReturnValue({ eq });
   selectAfterUpdate.mockResolvedValue({ data: [{ id: ID }], error: null });
+  rpc.mockResolvedValue({ data: null, error: null });
+  getCompletionContext.mockResolvedValue({
+    dueDate: null,
+    completedAt: null,
+    anchor: null,
+    recurrence: null,
+  });
 });
 
 describe("createTask", () => {
@@ -76,6 +91,9 @@ describe("createTask", () => {
       category: "work",
       priority: "high",
       due_date: "2026-12-24",
+      recur_frequency: null,
+      recur_interval: null,
+      recur_weekdays: null,
     });
     expect(insert.mock.calls[0]![0]).not.toHaveProperty("user_id");
     expect(revalidatePath).toHaveBeenCalledWith("/");
@@ -140,6 +158,9 @@ describe("updateTask", () => {
       category: "work",
       priority: "high",
       due_date: "2026-12-24",
+      recur_frequency: null,
+      recur_interval: null,
+      recur_weekdays: null,
     });
     expect(eq).toHaveBeenCalledWith("id", ID);
     expect(revalidatePath).toHaveBeenCalledWith("/");
@@ -192,18 +213,164 @@ describe("updateTask", () => {
   });
 });
 
+describe("repeating quests: saving the rule", () => {
+  const weekly = { ...good, repeat: "weekly", interval: "2", weekdays: ["4", "1"] };
+
+  it("sends the rule with a new quest", async () => {
+    await createTask(IDLE, form(weekly));
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recur_frequency: "weekly",
+        recur_interval: 2,
+        recur_weekdays: [1, 4],
+      }),
+    );
+  });
+
+  it("sends no weekdays for a rule without any", async () => {
+    await createTask(IDLE, form({ ...good, repeat: "monthly", interval: "1" }));
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recur_frequency: "monthly",
+        recur_interval: 1,
+        recur_weekdays: null,
+      }),
+    );
+  });
+
+  it("never sends the series anchor or the link to an earlier quest", async () => {
+    await createTask(
+      IDLE,
+      form({ ...weekly, recurrence_anchor: "2000-01-01", recurred_from: ID, completed_at: "x" }),
+    );
+    const sent = insert.mock.calls[0]![0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty("recurrence_anchor");
+    expect(sent).not.toHaveProperty("recurred_from");
+    expect(sent).not.toHaveProperty("completed_at");
+  });
+
+  it("refuses a repeating quest with no due date, and never reaches the database", async () => {
+    const result = await createTask(IDLE, form({ ...weekly, dueDate: "" }));
+    expect(result).toMatchObject({
+      status: "error",
+      errors: { dueDate: expect.stringMatching(/needs a date/) },
+      values: { repeat: "weekly", interval: "2", weekdays: ["4", "1"] },
+    });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it("shows the rule again when the database refuses the quest", async () => {
+    insert.mockResolvedValue({ error: { message: "boom" } });
+    const result = await createTask(IDLE, form(weekly));
+    expect(result).toMatchObject({
+      status: "error",
+      values: { repeat: "weekly", interval: "2", weekdays: ["1", "4"] },
+    });
+  });
+
+  it("saves a changed rule when editing, and clears it when the quest stops repeating", async () => {
+    await expect(updateTask(ID, IDLE, form(weekly))).rejects.toThrow("NEXT_REDIRECT:/");
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ recur_frequency: "weekly", recur_interval: 2 }),
+    );
+    await expect(updateTask(ID, IDLE, form({ ...good, repeat: "none" }))).rejects.toThrow(
+      "NEXT_REDIRECT:/",
+    );
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        recur_frequency: null,
+        recur_interval: null,
+        recur_weekdays: null,
+      }),
+    );
+  });
+});
+
 describe("setTaskCompleted", () => {
-  it("completes a quest with a timestamp", async () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const repeating = (over: Record<string, unknown> = {}) => ({
+    dueDate: "2026-10-28",
+    completedAt: null,
+    anchor: "2026-10-28",
+    recurrence: { frequency: "weekly", interval: 1, weekdays: [] },
+    ...over,
+  });
+
+  it("completes an ordinary quest through the database function, with no next date", async () => {
     await setTaskCompleted(form({ id: ID, completed: "true" }));
-    const sent = update.mock.calls[0]![0] as { completed_at: string };
-    expect(new Date(sent.completed_at).toString()).not.toBe("Invalid Date");
-    expect(eq).toHaveBeenCalledWith("id", ID);
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: null });
+    expect(update).not.toHaveBeenCalled(); // the browser's clock and the API are not used for the time
     expect(revalidatePath).toHaveBeenCalledWith("/");
   });
 
-  it("re-opens a quest", async () => {
+  it("works out the next date for a repeating quest and passes it along", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-28T12:00:00Z"), toFake: ["Date"] });
+    getCompletionContext.mockResolvedValue(repeating());
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: "2026-11-04" });
+  });
+
+  it("skips ahead when a repeating quest is completed late", async () => {
+    // Due Wed 28 Oct, ticked off Fri 6 Nov: the next Wednesday is 11 Nov, not 4 Nov.
+    vi.useFakeTimers({ now: new Date("2026-11-06T12:00:00Z"), toFake: ["Date"] });
+    getCompletionContext.mockResolvedValue(repeating());
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: "2026-11-11" });
+  });
+
+  it("keeps the schedule when a repeating quest is completed early", async () => {
+    // Due Wed 28 Oct, ticked off Mon 26 Oct: still the 4th of November next, not the 28th again.
+    vi.useFakeTimers({ now: new Date("2026-10-26T12:00:00Z"), toFake: ["Date"] });
+    getCompletionContext.mockResolvedValue(repeating());
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: "2026-11-04" });
+  });
+
+  it("uses the user's own date, from their saved time zone", async () => {
+    // 23:30 UTC on the 28th is already the 29th in Johannesburg, so a daily quest due the 28th
+    // finished "today" there is next due on the 30th.
+    vi.useFakeTimers({ now: new Date("2026-10-28T23:30:00Z"), toFake: ["Date"] });
+    getTimeZone.mockResolvedValue("Africa/Johannesburg");
+    getCompletionContext.mockResolvedValue(
+      repeating({ recurrence: { frequency: "daily", interval: 1, weekdays: [] } }),
+    );
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: "2026-10-30" });
+  });
+
+  it("passes no next date for a series that has run past the end of the calendar", async () => {
+    vi.useFakeTimers({ now: new Date("2100-12-31T12:00:00Z"), toFake: ["Date"] });
+    getCompletionContext.mockResolvedValue(
+      repeating({
+        dueDate: "2100-12-31",
+        anchor: "2100-12-31",
+        recurrence: { frequency: "daily", interval: 1, weekdays: [] },
+      }),
+    );
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: null });
+  });
+
+  it("passes no next date when the quest is already completed (a second click)", async () => {
+    getCompletionContext.mockResolvedValue(repeating({ completedAt: "2026-10-28T08:00:00Z" }));
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: null });
+  });
+
+  it("passes no next date for a quest that is not the user's or does not exist", async () => {
+    getCompletionContext.mockResolvedValue(null);
+    await setTaskCompleted(form({ id: ID, completed: "true" }));
+    expect(rpc).toHaveBeenCalledWith("complete_task", { p_task_id: ID, p_next_due: null });
+  });
+
+  it("re-opens a quest through the database function", async () => {
     await setTaskCompleted(form({ id: ID, completed: "false" }));
-    expect(update).toHaveBeenCalledWith({ completed_at: null });
+    expect(rpc).toHaveBeenCalledWith("reopen_task", { p_task_id: ID });
+    expect(getCompletionContext).not.toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith("/");
   });
 
   it("requires sign-in first", async () => {
@@ -211,7 +378,7 @@ describe("setTaskCompleted", () => {
     await expect(setTaskCompleted(form({ id: ID, completed: "true" }))).rejects.toThrow(
       "NEXT_REDIRECT:/login",
     );
-    expect(update).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -221,17 +388,19 @@ describe("setTaskCompleted", () => {
     ["no completed value", { id: ID }],
   ])("ignores %s", async (_label, fields) => {
     await setTaskCompleted(form(fields));
-    expect(update).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
-  it("throws a generic error when the database refuses", async () => {
-    eq.mockReturnValue({ then: (r: (v: unknown) => void) => r({ error: { message: "secret" } }) });
-    const attempt = setTaskCompleted(form({ id: ID, completed: "true" }));
-    await expect(attempt).rejects.toThrow("Could not update the quest");
-    await expect(attempt).rejects.not.toThrow(/secret/);
-  });
+  it.each(["true", "false"])(
+    "throws a generic error when the database refuses (completed=%s)",
+    async (completed) => {
+      rpc.mockResolvedValue({ data: null, error: { message: "secret" } });
+      const attempt = setTaskCompleted(form({ id: ID, completed }));
+      await expect(attempt).rejects.toThrow("Could not update the quest");
+      await expect(attempt).rejects.not.toThrow(/secret/);
+    },
+  );
 });
-
 describe("setTaskPinned", () => {
   afterEach(() => {
     vi.useRealTimers();
