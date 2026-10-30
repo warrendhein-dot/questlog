@@ -107,7 +107,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       # Supabase's own action, with the CLI version pinned to the one we develop with.
-      - uses: supabase/setup-cli@v1
+      - uses: supabase/setup-cli@v3
         with:
           version: 2.122.0
       # A private, throwaway Supabase in Docker: database, login service and API only. `start` builds
