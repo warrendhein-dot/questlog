@@ -28,20 +28,27 @@ type Props = {
 const CONTROL =
   "w-full rounded border-2 border-panel-border bg-background px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-panel-border";
 
+// Side by side, a long label that wraps pushes its box lower than its neighbour's. These classes
+// reserve two lines of label height and sit the text at the bottom, so both boxes start level.
+const LEVEL_LABEL = "sm:flex sm:min-h-12 sm:items-end";
+const SAME_HEIGHT = "h-11";
+
 function Field({
   id,
   label,
   error,
+  labelClassName = "",
   children,
 }: {
   id: string;
   label: string;
   error?: string;
+  labelClassName?: string;
   children: ReactNode;
 }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block font-bold">
+      <label htmlFor={id} className={`mb-1 block font-bold ${labelClassName}`}>
         {label}
       </label>
       {children}
@@ -176,14 +183,19 @@ export function TaskForm({ action, initial = EMPTY_TASK_FORM, submitLabel }: Pro
           </p>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field id={`${prefix}-repeat`} label="Repeats" error={errors.repeat}>
+            <Field
+              id={`${prefix}-repeat`}
+              label="Repeats"
+              error={errors.repeat}
+              labelClassName={LEVEL_LABEL}
+            >
               <select
                 id={`${prefix}-repeat`}
                 name="repeat"
                 defaultValue={values.repeat}
                 aria-invalid={errors.repeat ? true : undefined}
                 aria-describedby={describedBy("repeat", Boolean(errors.repeat))}
-                className={CONTROL}
+                className={`${CONTROL} ${SAME_HEIGHT}`}
               >
                 {(["none", ...RECURRENCE_FREQUENCIES] as const).map((choice) => (
                   <option key={choice} value={choice}>
@@ -197,6 +209,7 @@ export function TaskForm({ action, initial = EMPTY_TASK_FORM, submitLabel }: Pro
               id={`${prefix}-interval`}
               label="Every (number of days, weeks or months)"
               error={errors.interval}
+              labelClassName={LEVEL_LABEL}
             >
               <input
                 id={`${prefix}-interval`}
@@ -208,14 +221,14 @@ export function TaskForm({ action, initial = EMPTY_TASK_FORM, submitLabel }: Pro
                 defaultValue={values.interval}
                 aria-invalid={errors.interval ? true : undefined}
                 aria-describedby={describedBy("interval", Boolean(errors.interval))}
-                className={CONTROL}
+                className={`${CONTROL} ${SAME_HEIGHT}`}
               />
             </Field>
           </div>
 
           <fieldset aria-describedby={describedBy("weekdays", Boolean(errors.weekdays))}>
-            <legend className="mb-1 font-bold">On these days (weekly only, optional)</legend>
-            <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <legend className="mb-2 font-bold">On these days (weekly only, optional)</legend>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
               {WEEKDAY_NAMES.map((name, index) => (
                 <label key={name} className="flex items-center gap-2">
                   <input
