@@ -11,10 +11,16 @@ const {
   eq,
   rpc,
   getCompletionContext,
+  deleteRows,
+  deleteEq,
+  deleteNot,
 } = vi.hoisted(() => {
   const selectAfterUpdate = vi.fn();
   const eq = vi.fn();
   return {
+    deleteRows: vi.fn(),
+    deleteEq: vi.fn(),
+    deleteNot: vi.fn(),
     requireUser: vi.fn(),
     getTimeZone: vi.fn(),
     redirect: vi.fn((url: string) => {
@@ -35,11 +41,23 @@ vi.mock("@/lib/auth/profile", () => ({ getTimeZone }));
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/lib/supabase/server", () => ({
-  createSupabaseServerClient: async () => ({ from: () => ({ insert, update }), rpc }),
+  createSupabaseServerClient: async () => ({
+    from: () => ({ insert, update, delete: deleteRows }),
+    rpc,
+  }),
 }));
 vi.mock("@/lib/tasks/queries", () => ({ getCompletionContext }));
 
-import { createTask, setTaskCompleted, setTaskPinned, updateTask } from "./actions";
+import {
+  createTask,
+  deleteTaskForever,
+  emptyTrash,
+  restoreTask,
+  setTaskCompleted,
+  setTaskPinned,
+  trashTask,
+  updateTask,
+} from "./actions";
 
 const ID = "123e4567-e89b-42d3-a456-426614174000";
 const IDLE = { status: "idle" } as const;
@@ -74,6 +92,9 @@ beforeEach(() => {
   update.mockReturnValue({ eq });
   selectAfterUpdate.mockResolvedValue({ data: [{ id: ID }], error: null });
   rpc.mockResolvedValue({ data: null, error: null });
+  deleteEq.mockResolvedValue({ error: null });
+  deleteNot.mockResolvedValue({ error: null });
+  deleteRows.mockReturnValue({ eq: deleteEq, not: deleteNot });
   getCompletionContext.mockResolvedValue({
     dueDate: null,
     completedAt: null,
@@ -450,6 +471,139 @@ describe("setTaskPinned", () => {
     eq.mockReturnValue({ then: (r: (v: unknown) => void) => r({ error: { message: "secret" } }) });
     const attempt = setTaskPinned(form({ id: ID, pinned: "false" }));
     await expect(attempt).rejects.toThrow("Could not update the quest");
+    await expect(attempt).rejects.not.toThrow(/secret/);
+  });
+});
+
+describe("trashTask", () => {
+  it("moves a quest to the Trash through the database function, and refreshes the lists", async () => {
+    await trashTask(form({ id: ID }));
+    expect(rpc).toHaveBeenCalledWith("trash_task", { p_task_id: ID });
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/trash");
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("goes home afterwards when the button was on the edit page", async () => {
+    await expect(trashTask(form({ id: ID, from: "edit" }))).rejects.toThrow("NEXT_REDIRECT:/");
+    expect(rpc).toHaveBeenCalledWith("trash_task", { p_task_id: ID });
+  });
+
+  it("never lets the form choose where to go", async () => {
+    await trashTask(form({ id: ID, from: "https://evil.example", next: "https://evil.example" }));
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("never writes the delete time itself", async () => {
+    await trashTask(form({ id: ID, deleted_at: "2000-01-01" }));
+    expect(update).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith("trash_task", { p_task_id: ID });
+  });
+
+  it("requires sign-in first", async () => {
+    requireUser.mockRejectedValue(new Error("NEXT_REDIRECT:/login"));
+    await expect(trashTask(form({ id: ID }))).rejects.toThrow("NEXT_REDIRECT:/login");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a bad id", { id: "nope" }],
+    ["no id", {}],
+  ])("ignores %s", async (_label, fields) => {
+    await trashTask(form(fields));
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("throws a generic error when the database refuses", async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: "secret" } });
+    const attempt = trashTask(form({ id: ID }));
+    await expect(attempt).rejects.toThrow("Could not delete the quest");
+    await expect(attempt).rejects.not.toThrow(/secret/);
+  });
+});
+
+describe("restoreTask", () => {
+  it("takes a quest out of the Trash through the database function", async () => {
+    await restoreTask(form({ id: ID }));
+    expect(rpc).toHaveBeenCalledWith("restore_task", { p_task_id: ID });
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/trash");
+  });
+
+  it("requires sign-in first", async () => {
+    requireUser.mockRejectedValue(new Error("NEXT_REDIRECT:/login"));
+    await expect(restoreTask(form({ id: ID }))).rejects.toThrow("NEXT_REDIRECT:/login");
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a bad id", { id: "nope" }],
+    ["no id", {}],
+  ])("ignores %s", async (_label, fields) => {
+    await restoreTask(form(fields));
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("throws a generic error when the database refuses", async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: "secret" } });
+    const attempt = restoreTask(form({ id: ID }));
+    await expect(attempt).rejects.toThrow("Could not restore the quest");
+    await expect(attempt).rejects.not.toThrow(/secret/);
+  });
+});
+
+describe("deleteTaskForever", () => {
+  it("deletes the one quest with that id, and refreshes the lists", async () => {
+    await deleteTaskForever(form({ id: ID }));
+    expect(deleteRows).toHaveBeenCalledTimes(1);
+    expect(deleteEq).toHaveBeenCalledWith("id", ID);
+    expect(deleteNot).not.toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(revalidatePath).toHaveBeenCalledWith("/trash");
+  });
+
+  it("requires sign-in first", async () => {
+    requireUser.mockRejectedValue(new Error("NEXT_REDIRECT:/login"));
+    await expect(deleteTaskForever(form({ id: ID }))).rejects.toThrow("NEXT_REDIRECT:/login");
+    expect(deleteRows).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a bad id", { id: "nope" }],
+    ["no id", {}],
+    ["a list of ids", { id: `${ID},${ID}` }],
+  ])("ignores %s, so nothing is ever deleted without a single valid id", async (_label, fields) => {
+    await deleteTaskForever(form(fields));
+    expect(deleteRows).not.toHaveBeenCalled();
+  });
+
+  it("throws a generic error when the database refuses", async () => {
+    deleteEq.mockResolvedValue({ error: { message: "secret" } });
+    const attempt = deleteTaskForever(form({ id: ID }));
+    await expect(attempt).rejects.toThrow("Could not delete the quest");
+    await expect(attempt).rejects.not.toThrow(/secret/);
+  });
+});
+
+describe("emptyTrash", () => {
+  it("deletes only what is in the Trash, and refreshes the lists", async () => {
+    await emptyTrash();
+    expect(deleteRows).toHaveBeenCalledTimes(1);
+    expect(deleteNot).toHaveBeenCalledWith("deleted_at", "is", null);
+    expect(deleteEq).not.toHaveBeenCalled();
+    expect(revalidatePath).toHaveBeenCalledWith("/trash");
+  });
+
+  it("requires sign-in first", async () => {
+    requireUser.mockRejectedValue(new Error("NEXT_REDIRECT:/login"));
+    await expect(emptyTrash()).rejects.toThrow("NEXT_REDIRECT:/login");
+    expect(deleteRows).not.toHaveBeenCalled();
+  });
+
+  it("throws a generic error when the database refuses", async () => {
+    deleteNot.mockResolvedValue({ error: { message: "secret" } });
+    const attempt = emptyTrash();
+    await expect(attempt).rejects.toThrow("Could not empty the Trash");
     await expect(attempt).rejects.not.toThrow(/secret/);
   });
 });

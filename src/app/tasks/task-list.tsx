@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { setTaskCompleted, setTaskPinned } from "@/app/tasks/actions";
+import { setTaskCompleted, setTaskPinned, trashTask } from "@/app/tasks/actions";
+import { BUTTON } from "@/app/tasks/button-style";
 import type { TaskWithSteps } from "@/lib/tasks/queries";
 import { describeRecurrence } from "@/lib/tasks/recurrence";
 import { CATEGORY_LABELS, PRIORITY_LABELS } from "@/lib/tasks/schema";
@@ -15,9 +16,6 @@ type Props = {
    */
   today?: string;
 };
-
-const BUTTON =
-  "rounded border-2 border-panel-border bg-background px-3 py-1 font-bold hover:bg-panel-from focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-panel-border";
 
 export function TaskList({ tasks, mode, emptyMessage, today }: Props) {
   if (tasks.length === 0) return <p>{emptyMessage}</p>;
@@ -84,6 +82,13 @@ export function TaskList({ tasks, mode, emptyMessage, today }: Props) {
                 </button>
               </form>
             )}
+            {/* Moves the quest to the Trash, where it can be restored, so no confirmation is needed. */}
+            <form action={trashTask}>
+              <input type="hidden" name="id" value={task.id} />
+              <button type="submit" aria-label={`Delete quest: ${task.title}`} className={BUTTON}>
+                Delete
+              </button>
+            </form>
           </div>
         </li>
       ))}

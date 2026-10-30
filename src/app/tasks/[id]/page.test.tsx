@@ -17,7 +17,11 @@ vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: async () =
 vi.mock("@/lib/tasks/queries", () => ({ getTask }));
 vi.mock("@/lib/subtasks/queries", () => ({ listSubtasks }));
 vi.mock("next/navigation", () => ({ notFound }));
-vi.mock("@/app/tasks/actions", () => ({ updateTask, setTaskCompleted: vi.fn() }));
+vi.mock("@/app/tasks/actions", () => ({
+  updateTask,
+  setTaskCompleted: vi.fn(),
+  trashTask: vi.fn(),
+}));
 vi.mock("@/app/tasks/subtask-actions", () => ({
   addSubtask: vi.fn(),
   setSubtaskCompleted: vi.fn(),
@@ -65,6 +69,18 @@ describe("Edit quest page", () => {
     screen.getByRole("button", { name: "Save changes" }).click();
     await vi.waitFor(() => expect(updateTask).toHaveBeenCalled());
     expect(updateTask.mock.calls[0]![0]).toBe(ID);
+  });
+
+  it("offers a Delete quest button in its own form, which sends the user home afterwards", async () => {
+    const { container } = await renderPage(ID);
+    const button = screen.getByRole("button", { name: "Delete quest" });
+    const form = button.closest("form")!;
+    expect(form.querySelector('input[name="id"]')).toHaveValue(ID);
+    expect(form.querySelector('input[name="from"]')).toHaveValue("edit");
+    // A form cannot be nested in another, so this must not be inside the edit form.
+    expect(form.querySelector('input[name="title"]')).toBeNull();
+    expect(container.querySelectorAll("form form")).toHaveLength(0);
+    expect(screen.getByText(/goes to the Trash/)).toBeInTheDocument();
   });
 
   it("shows the quest's steps in their own section", async () => {

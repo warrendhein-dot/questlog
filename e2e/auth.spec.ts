@@ -18,6 +18,12 @@ test.describe("signed-out visitor", () => {
     await expect(page).toHaveURL(/\/login$/); // sent to the login page, with the query string dropped
   });
 
+  test("cannot open the Trash page", async ({ page }) => {
+    await page.goto("/trash");
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByText(/Deleted .* removed for good/)).toHaveCount(0);
+  });
+
   test("cannot open a quest's edit page, whether the id is real or made up", async ({ page }) => {
     for (const id of ["123e4567-e89b-42d3-a456-426614174000", "not-a-uuid", "%2e%2e%2fsecret"]) {
       await page.goto(`/tasks/${id}`);

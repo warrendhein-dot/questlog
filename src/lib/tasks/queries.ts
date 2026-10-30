@@ -79,11 +79,16 @@ function toTaskWithSteps(row: unknown): TaskWithSteps {
 // These run as the signed-in user, so row-level security already limits every query to their own
 // tasks. The messages below are deliberately generic: database error text can name tables and rules.
 
+// Every list and lookup below leaves out quests in the Trash (`deleted_at` set). The database
+// already refuses to change a trashed quest; this keeps them out of sight. Only listTrashedTasks
+// asks for them.
+
 /** Open quests: soonest due date first (no date last), then highest priority, then oldest. */
 export async function listOpenTasks(supabase: SupabaseClient): Promise<TaskWithSteps[]> {
   const { data, error } = await supabase
     .from("tasks")
     .select(LIST_COLUMNS)
+    .is("deleted_at", null)
     .is("completed_at", null)
     .order("due_date", { ascending: true, nullsFirst: false })
     .order("priority", { ascending: false })
@@ -100,6 +105,7 @@ export async function listRecentCompletedTasks(
   const { data, error } = await supabase
     .from("tasks")
     .select(LIST_COLUMNS)
+    .is("deleted_at", null)
     .not("completed_at", "is", null)
     .order("completed_at", { ascending: false })
     .limit(limit);
@@ -107,9 +113,33 @@ export async function listRecentCompletedTasks(
   return (data ?? []).map(toTaskWithSteps);
 }
 
-/** One quest by id, or null if it does not exist or is not the signed-in user's. */
+/** A quest in the Trash, with the moment it was deleted (an ISO timestamp from the database). */
+export type TrashedTask = Task & { deletedAt: string };
+
+const trashedRowSchema = taskRowSchema.extend({ deleted_at: z.string() });
+
+/** The quests in the Trash, most recently deleted first. */
+export async function listTrashedTasks(supabase: SupabaseClient): Promise<TrashedTask[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(`${COLUMNS}, deleted_at`)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+  if (error) throw new Error("Could not load the Trash");
+  return (data ?? []).map((row) => {
+    const parsed = trashedRowSchema.parse(row);
+    return { ...toTask(parsed), deletedAt: parsed.deleted_at };
+  });
+}
+
+/** One quest by id, or null if it does not exist, is in the Trash, or is not the signed-in user's. */
 export async function getTask(supabase: SupabaseClient, id: string): Promise<Task | null> {
-  const { data, error } = await supabase.from("tasks").select(COLUMNS).eq("id", id).maybeSingle();
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(COLUMNS)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
   if (error) throw new Error("Could not load the quest");
   return data ? toTask(data) : null;
 }
@@ -139,6 +169,7 @@ export async function getCompletionContext(
     .from("tasks")
     .select(`due_date, completed_at, recurrence_anchor, ${RECURRENCE_COLUMNS}`)
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error("Could not load the quest");
   if (!data) return null;

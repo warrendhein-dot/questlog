@@ -102,7 +102,7 @@ describe("subtasks: who can see and change what", () => {
       asUser(db, alice, (q) =>
         q("insert into public.subtasks (task_id, title) values ($1, 'Intruder')", [bobTaskId]),
       ),
-    ).rejects.toThrow(/foreign key/);
+    ).rejects.toThrow(/row-level security/);
     const bobs = await db.query("select 1 from public.subtasks where title = 'Intruder'");
     expect(bobs.rows).toEqual([]);
   });

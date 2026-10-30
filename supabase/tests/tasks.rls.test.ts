@@ -192,10 +192,16 @@ describe("tasks: who can see and change what", () => {
     ).rejects.toThrow(/check constraint/);
   });
 
-  it("does not let users delete tasks (yet)", async () => {
-    await expect(asUser(db, alice, (q) => q("delete from public.tasks"))).rejects.toThrow(
-      /permission denied/,
+  it("does not let users delete a quest that is not in the Trash (see trash.rls.test.ts)", async () => {
+    // Deleting is allowed, but only for rows already in the Trash: on live quests it removes nothing.
+    const removed = await asUser(
+      db,
+      alice,
+      async (q) => (await q("delete from public.tasks")).rows,
     );
+    expect(removed).toHaveLength(0);
+    const left = await db.query("select 1 from public.tasks where id = $1", [aliceTaskId]);
+    expect(left.rows).toHaveLength(1);
   });
 
   it("gives signed-out visitors no access at all", async () => {

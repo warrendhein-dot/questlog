@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { signOut } from "@/app/auth/actions";
 import { OpenQuests } from "@/app/open-quests";
 import { QuestTabs } from "@/app/quest-tabs";
@@ -57,6 +58,15 @@ export default async function Home({
         </h2>
         <TaskList tasks={doneTasks} mode="done" emptyMessage="Nothing completed yet." />
       </section>
+
+      <p>
+        <Link
+          href="/trash"
+          className="underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-panel-border"
+        >
+          Trash
+        </Link>
+      </p>
 
       <form action={signOut}>
         <button

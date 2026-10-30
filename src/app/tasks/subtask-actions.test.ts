@@ -77,8 +77,11 @@ describe("addSubtask", () => {
     expect(insert).toHaveBeenCalledWith({ task_id: TASK, title: "Step" });
   });
 
-  it("says not found when the database refuses the quest (not yours, or gone)", async () => {
-    insert.mockResolvedValue({ error: { code: "23503", message: "violates foreign key" } });
+  it.each([
+    ["row-level security refuses it (not yours, gone, or in the Trash)", "42501"],
+    ["the foreign key refuses it", "23503"],
+  ])("says not found when %s", async (_why, code) => {
+    insert.mockResolvedValue({ error: { code, message: "refused" } });
     expect(await addSubtask(TASK, IDLE, form({ title: "Step" }))).toEqual({
       status: "error",
       message: "That quest could not be found.",

@@ -115,6 +115,17 @@ jobs:
       # rules and rate limit. Its keys are generated locally and work nowhere else.
       - name: Start local Supabase
         run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+      # The 30-day Trash purge is scheduled with pg_cron, which the in-process test database does not
+      # have, so this is the one place that proves the job exists (a migration that silently skipped
+      # scheduling would otherwise leave the Trash growing forever). It also runs the purge once, as
+      # the database's own role, to prove the function works where it will really run.
+      - name: Check the daily Trash purge is scheduled
+        run: |
+          db=$(docker ps --filter "name=supabase_db_" --format '{{.Names}}' | head -n 1)
+          job=$(docker exec "$db" psql -U postgres -d postgres -tA -c "select schedule || ' ' || command from cron.job where jobname = 'purge-trash'")
+          echo "purge-trash job: $job"
+          test "$job" = "17 3 * * * select public.purge_trash()"
+          docker exec "$db" psql -U postgres -d postgres -tA -c "select public.purge_trash()"
       # Playwright builds and starts the production app itself, pointed at the throwaway stack
       # (see playwright.signed-in.config.ts).
       - name: Run signed-in browser tests

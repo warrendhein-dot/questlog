@@ -2,7 +2,11 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { TaskWithSteps } from "@/lib/tasks/queries";
 
-vi.mock("@/app/tasks/actions", () => ({ setTaskCompleted: vi.fn(), setTaskPinned: vi.fn() }));
+vi.mock("@/app/tasks/actions", () => ({
+  setTaskCompleted: vi.fn(),
+  setTaskPinned: vi.fn(),
+  trashTask: vi.fn(),
+}));
 
 import { TaskList } from "./task-list";
 
@@ -90,11 +94,38 @@ describe("TaskList", () => {
     (mode) => {
       // Voice-control users say the visible word ("click Undo"), so the accessible name must contain it.
       render(<TaskList tasks={[task]} mode={mode} emptyMessage="" />);
-      const button = screen.getByRole("button");
-      const visible = button.textContent!.trim().toLowerCase();
-      expect(button.getAttribute("aria-label")!.toLowerCase()).toContain(visible);
+      for (const button of screen.getAllByRole("button")) {
+        const visible = button.textContent!.trim().toLowerCase();
+        expect(button.getAttribute("aria-label")!.toLowerCase()).toContain(visible);
+      }
     },
   );
+
+  describe("deleting", () => {
+    it.each(["open", "done"] as const)(
+      "offers a Delete button that names the quest, in %s lists",
+      (mode) => {
+        const { container } = render(<TaskList tasks={[task]} mode={mode} emptyMessage="" />);
+        expect(screen.getByRole("button", { name: "Delete quest: Pay rent" })).toHaveTextContent(
+          "Delete",
+        );
+        const forms = [...container.querySelectorAll("form")];
+        const deleteForm = forms.find((f) => f.textContent === "Delete")!;
+        expect(deleteForm.querySelector('input[name="id"]')).toHaveValue(task.id);
+      },
+    );
+
+    it("asks no question first, because the Trash lets the user take it back", () => {
+      render(<TaskList tasks={[task]} mode="open" emptyMessage="" />);
+      expect(screen.queryByText(/for good|cannot be undone/i)).not.toBeInTheDocument();
+    });
+
+    it("does not tell the deleting button apart from the others by colour alone", () => {
+      render(<TaskList tasks={[task]} mode="open" emptyMessage="" />);
+      // The word is on the button itself, so it never depends on colour or position.
+      expect(screen.getByRole("button", { name: /Delete quest/ })).toHaveTextContent(/^Delete$/);
+    });
+  });
 
   describe("pinning to today", () => {
     const TODAY = "2026-10-28";
