@@ -42,6 +42,55 @@ describe("parseEnv", () => {
     expect(env.NEXT_PUBLIC_APP_URL).toBe("https://questlog.app");
   });
 
+  describe("in production", () => {
+    // Without these rules a forgotten setting would silently fall back to the development default,
+    // and every sign-in would send the user to http://localhost:3000.
+    it("refuses to start without an explicit app URL, rather than falling back to localhost", () => {
+      expect(() => parseEnv({ NODE_ENV: "production" })).toThrow(
+        /NEXT_PUBLIC_APP_URL: is required in production/,
+      );
+    });
+
+    it("requires the app URL to be https", () => {
+      expect(() =>
+        parseEnv({ NODE_ENV: "production", NEXT_PUBLIC_APP_URL: "http://questlog.example" }),
+      ).toThrow(/NEXT_PUBLIC_APP_URL: must be https in production/);
+    });
+
+    it.each(["http://localhost:3101", "http://127.0.0.1:3100"])(
+      "still allows plain http for this computer only (%s), so the browser tests can run a production build",
+      (url) => {
+        expect(parseEnv({ NODE_ENV: "production", NEXT_PUBLIC_APP_URL: url })).toMatchObject({
+          NEXT_PUBLIC_APP_URL: url,
+        });
+      },
+    );
+
+    it.each(["http://localhost.evil.example", "http://user@evil.example@localhost"])(
+      "does not let %s pass as a local address",
+      (url) => {
+        expect(() => parseEnv({ NODE_ENV: "production", NEXT_PUBLIC_APP_URL: url })).toThrow(
+          /NEXT_PUBLIC_APP_URL/,
+        );
+      },
+    );
+
+    it("never includes the offending value in the error message", () => {
+      const attempt = () =>
+        parseEnv({
+          NODE_ENV: "production",
+          NEXT_PUBLIC_APP_URL: "http://super-secret-host.example",
+        });
+      expect(attempt).toThrow(/NEXT_PUBLIC_APP_URL/);
+      expect(attempt).not.toThrow(/super-secret-host/);
+    });
+  });
+
+  it("leaves development and tests free to use the localhost default", () => {
+    expect(parseEnv({ NODE_ENV: "development" }).NEXT_PUBLIC_APP_URL).toBe("http://localhost:3000");
+    expect(parseEnv({ NODE_ENV: "test" }).NEXT_PUBLIC_APP_URL).toBe("http://localhost:3000");
+  });
+
   it("rejects an unknown NODE_ENV", () => {
     expect(() => parseEnv({ NODE_ENV: "staging" })).toThrow(/NODE_ENV/);
   });

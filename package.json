@@ -18,6 +18,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:e2e:signed-in": "playwright test -c playwright.signed-in.config.ts",
+    "check:live": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-live.ts",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "check": "npm run lint && npm run typecheck && npm run format:check && npm run test && npm run audit:prod"
   },
